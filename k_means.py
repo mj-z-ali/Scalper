@@ -1,8 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 
 
-def minimums_ignoring_zero(values_array: np.array):
+def minimums_ignoring_zero(values_array: np.array) -> np.array:
     
     # Ignore zeros
     masked_array = np.ma.masked_equal(values_array, 0)
@@ -13,9 +14,8 @@ def minimums_ignoring_zero(values_array: np.array):
     # (n-points,) matrix of smallest values.
     return values_array[np.arange(values_array.shape[0]), minimum_indices]
 
-def minimums(values_array: np.array):
+def minimums(values_array: np.array) -> np.array:
     
-
     # Retrieve indices of smallest values across the second dimension.
     minimum_indices = np.ma.argmin(values_array, axis=1)
 
@@ -61,7 +61,7 @@ def point_nearest_to_most(points_a: np.array, points_b: np.array) -> np.array:
     return point_with_minimum_sum
 
 def initialize_centroids(points: np.array, k: int) -> np.array:
-    print(len(points))
+
     # Initialize the first centroid to the point that has the shortest distance to all other points.
     centroids = np.array([point_nearest_to_most(points_a=points, points_b=points)])
 
@@ -88,6 +88,40 @@ def initialize_centroids(points: np.array, k: int) -> np.array:
         plot(points, centroids)
 
     return centroids
+
+def move_centroids(data: np.array, centroids: np.array, nearest_centroid_indices: np.array) -> np.array:
+
+    new_centroids = np.array([data[nearest_centroid_indices == k].mean(axis=0) for k in range(centroids.shape[0])])
+
+    return new_centroids
+
+def k_means(data: np.array, k: int, max_iterations: int = 100) -> tuple[np.array, np.array]:
+
+    centroids = initialize_centroids(points=data, k=k)
+
+    for i in range(max_iterations):
+        # Distances of points to centroids.
+        # Results in a (n-points, m-centroids) matrix.
+        distances = points_to_points_distances(points_a=data, points_b=centroids)
+
+        nearest_centroid_indices = np.argmin(distances, axis=1)
+
+        print(f"nearest centroid indices{nearest_centroid_indices}")
+        print(f"nearest centroid indices shape {nearest_centroid_indices.shape}")
+
+        new_centroids = move_centroids(data=data, centroids=centroids, nearest_centroid_indices=nearest_centroid_indices)
+
+        print(f"new centroids {new_centroids}")
+        print(f"new centroids shape {new_centroids.shape}")
+
+        if np.all(centroids == new_centroids):
+            print(f"Iterations: {i}")
+            break
+
+        centroids = new_centroids
+
+    return centroids, nearest_centroid_indices
+
 
 # creating data
 mean_01 = np.array([0.0, 0.0])
@@ -124,8 +158,27 @@ def plot(data, centroids):
     plt.ylim(-10, 15)
     plt.show()
 
+def plot_clusters(data: np.array, centroids: np.array, nearest_centroid_indices: np.array):
+
+    number_of_clusters = centroids.shape[0]
+
+    colors = cm.rainbow(np.linspace(0, 1, number_of_clusters))
+
+    for k in range(centroids.shape[0]):
+        current_data_points = data[nearest_centroid_indices == k]
+        plt.scatter(current_data_points[:, 0], current_data_points[:, 1], marker='.', color=colors[k], label=f'cluster{k}')
+
+    plt.scatter(centroids[:, 0], centroids[:, 1], color='black', label='centroids')
+
+    plt.title('Clusters')
+
+    plt.legend()
+    plt.xlim(-5, 12)
+    plt.ylim(-10, 15)
+    plt.show()
 
 # call the initialize function to get the centroids
-centroids = initialize_centroids(points=data, k=4)
+centroids, nearest_centroid_indices = k_means(data=data,k=4)
 
-print(centroids)
+plot_clusters(data=data, centroids=centroids, nearest_centroid_indices=nearest_centroid_indices)
+
