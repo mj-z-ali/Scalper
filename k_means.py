@@ -122,6 +122,11 @@ def k_means(data: np.array, k: int, max_iterations: int = 100) -> tuple[np.array
 
     return centroids, nearest_centroid_indices
 
+def k_means_model(data: np.array, centroids: np.array) -> np.array:
+
+    distances = points_to_points_distances(points_a=data, points_b=centroids)
+
+    return np.argmin(distances, axis=1)
 
 # creating data
 mean_01 = np.array([0.0, 0.0])
