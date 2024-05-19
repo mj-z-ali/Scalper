@@ -128,6 +128,28 @@ def k_means_model(data: np.array, centroids: np.array) -> np.array:
 
     return np.argmin(distances, axis=1)
 
+def silhouette_score(data: np.array, labels: np.array, centroids: np.array) -> float:
+
+    silhouette_scores = np.array([])
+
+    for k in range(centroids.shape[0]):
+
+        current_data_points = data[labels==k]
+
+        a_i = points_to_points_distances(points_a=current_data_points, points_b=current_data_points).mean(axis=1)
+
+        other_clusters = np.array([data[labels==l] for l in range(centroids.shape[0]) if k != l], dtype=object)
+
+        avg_distance_to_other_clusters = np.array([points_to_points_distances(points_a=current_data_points, points_b=other_cluster).mean(axis=1) for other_cluster in other_clusters])
+
+        b_i = avg_distance_to_other_clusters[np.argmin(avg_distance_to_other_clusters, axis=0), np.arange(avg_distance_to_other_clusters.shape[1])]
+
+        s_i = (b_i - a_i) / (np.maximum(a_i, b_i))
+
+        silhouette_scores = np.append(silhouette_scores, s_i)
+
+    return np.mean(silhouette_scores)
+
 # creating data
 mean_01 = np.array([0.0, 0.0])
 cov_01 = np.array([[1, 0.3], [0.3, 1]])
@@ -187,3 +209,4 @@ centroids, nearest_centroid_indices = k_means(data=data,k=4)
 
 plot_clusters(data=data, centroids=centroids, nearest_centroid_indices=nearest_centroid_indices)
 
+silhouette_score(data=data, labels=nearest_centroid_indices, centroids=centroids)
