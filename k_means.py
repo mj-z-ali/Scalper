@@ -65,8 +65,6 @@ def initialize_centroids(points: np.array, k: int) -> np.array:
     # Initialize the first centroid to the point that has the shortest distance to all other points.
     centroids = np.array([point_nearest_to_most(points_a=points, points_b=points)])
 
-    plot(points, centroids)
-
     for i in range(1, k):
         # (n-points, m-centroids) matrix where each value is the distance from a point to a centroid.
         distances = points_to_points_distances(points_a=points, points_b=centroids)
@@ -85,8 +83,6 @@ def initialize_centroids(points: np.array, k: int) -> np.array:
 
         centroids = np.append(centroids, next_centroid, axis=0)
 
-        plot(points, centroids)
-
     return centroids
 
 def move_centroids(data: np.array, centroids: np.array, nearest_centroid_indices: np.array) -> np.array:
@@ -95,7 +91,7 @@ def move_centroids(data: np.array, centroids: np.array, nearest_centroid_indices
 
     return new_centroids
 
-def k_means(data: np.array, k: int, max_iterations: int = 100) -> tuple[np.array, np.array]:
+def k_means(data: np.array, k: int = 2, max_iterations: int = 100) -> tuple[np.array, np.array]:
 
     centroids = initialize_centroids(points=data, k=k)
 
@@ -106,13 +102,8 @@ def k_means(data: np.array, k: int, max_iterations: int = 100) -> tuple[np.array
 
         nearest_centroid_indices = np.argmin(distances, axis=1)
 
-        print(f"nearest centroid indices{nearest_centroid_indices}")
-        print(f"nearest centroid indices shape {nearest_centroid_indices.shape}")
-
         new_centroids = move_centroids(data=data, centroids=centroids, nearest_centroid_indices=nearest_centroid_indices)
 
-        print(f"new centroids {new_centroids}")
-        print(f"new centroids shape {new_centroids.shape}")
 
         if np.all(centroids == new_centroids):
             print(f"Iterations: {i}")
@@ -129,7 +120,6 @@ def k_means_model(data: np.array, centroids: np.array) -> np.array:
     return np.argmin(distances, axis=1)
 
 def silhouette_score(data: np.array, labels: np.array, centroids: np.array) -> float:
-
     silhouette_scores = np.array([])
 
     for k in range(centroids.shape[0]):
@@ -149,6 +139,32 @@ def silhouette_score(data: np.array, labels: np.array, centroids: np.array) -> f
         silhouette_scores = np.append(silhouette_scores, s_i)
 
     return np.mean(silhouette_scores)
+
+def k_means_fit(data: np.array, max_k: int = 100) -> tuple[np.array, np.array, int, float]:
+    
+    centroids_array = []
+    labels_array = []
+    silhouette_scores = []
+
+    for k in range(2, max_k):
+    
+        centroids, labels = k_means(data=data,k=k)
+        
+        centroids_array.append(centroids)
+
+        labels_array.append(labels)
+
+        silhouette_scores.append(silhouette_score(data=data, labels=labels, centroids=centroids))
+
+    optimal_index = np.argmax(silhouette_scores)
+    optimal_k = optimal_index + 1
+    optimal_centroids  = centroids_array[optimal_index]
+    optimal_labels = labels_array[optimal_index]
+    optimal_silhouette_score = silhouette_scores[optimal_index]
+    plot_clusters(data=data, centroids=optimal_centroids, labels=optimal_labels, silhouette_score=optimal_silhouette_score)
+
+    return optimal_centroids, optimal_labels, optimal_k, optimal_silhouette_score
+
 
 # creating data
 mean_01 = np.array([0.0, 0.0])
@@ -185,28 +201,26 @@ def plot(data, centroids):
     plt.ylim(-10, 15)
     plt.show()
 
-def plot_clusters(data: np.array, centroids: np.array, nearest_centroid_indices: np.array):
+def plot_clusters(data: np.array, centroids: np.array, labels: np.array, silhouette_score: float):
 
     number_of_clusters = centroids.shape[0]
 
     colors = cm.rainbow(np.linspace(0, 1, number_of_clusters))
 
     for k in range(centroids.shape[0]):
-        current_data_points = data[nearest_centroid_indices == k]
+        current_data_points = data[labels == k]
         plt.scatter(current_data_points[:, 0], current_data_points[:, 1], marker='.', color=colors[k], label=f'cluster{k}')
 
     plt.scatter(centroids[:, 0], centroids[:, 1], color='black', label='centroids')
 
-    plt.title('Clusters')
+    plt.title(f"Clusters with a Silhouette Score of {silhouette_score}")
 
     plt.legend()
     plt.xlim(-5, 12)
     plt.ylim(-10, 15)
     plt.show()
 
-# call the initialize function to get the centroids
-centroids, nearest_centroid_indices = k_means(data=data,k=4)
 
-plot_clusters(data=data, centroids=centroids, nearest_centroid_indices=nearest_centroid_indices)
+centroids, labels, k, score = k_means_fit(data=data, max_k=50)
 
-silhouette_score(data=data, labels=nearest_centroid_indices, centroids=centroids)
+
