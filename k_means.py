@@ -17,7 +17,7 @@ def minimums_ignoring_zero(values_array: np.array) -> np.array:
 def minimums(values_array: np.array) -> np.array:
     
     # Retrieve indices of smallest values across the second dimension.
-    minimum_indices = np.ma.argmin(values_array, axis=1)
+    minimum_indices = np.argmin(values_array, axis=1)
 
     # (n-points,) matrix of smallest values.
     return values_array[np.arange(values_array.shape[0]), minimum_indices]
@@ -29,7 +29,7 @@ def points_to_points_distances(points_a: np.array, points_b: np.array) -> np.arr
     # n <- number of points in points_a,
     # d <- number of dimensions in both points_a and points_b.
     # Middle 1 dimension allows broadcasting across all points.
-    points_expanded =  points_a[:, np.newaxis, :]
+    points_expanded = points_a[:, np.newaxis, :]
 
     # Differences of dimensions across all pairs of points.
     # Results in a (n, m, d) matrix, s.t.:
@@ -167,25 +167,59 @@ def k_means_fit(data: np.array, max_k: int = 100) -> tuple[np.array, np.array, i
 
 
 # creating data
-mean_01 = np.array([0.0, 0.0])
-cov_01 = np.array([[1, 0.3], [0.3, 1]])
-dist_01 = np.random.multivariate_normal(mean_01, cov_01, 100)
+# mean_01 = np.array([0.0, 0.0])
+# cov_01 = np.array([[1, 0.3], [0.3, 1]])
+# dist_01 = np.random.multivariate_normal(mean_01, cov_01, 100)
 
-mean_02 = np.array([6.0, 7.0])
-cov_02 = np.array([[1.5, 0.3], [0.3, 1]])
-dist_02 = np.random.multivariate_normal(mean_02, cov_02, 100)
+# mean_02 = np.array([6.0, 7.0])
+# cov_02 = np.array([[1.5, 0.3], [0.3, 1]])
+# dist_02 = np.random.multivariate_normal(mean_02, cov_02, 100)
 
-mean_03 = np.array([7.0, -5.0])
-cov_03 = np.array([[1.2, 0.5], 
-                   [0.5, 1]]) 
-dist_03 = np.random.multivariate_normal(mean_03, cov_01, 100)
+# mean_03 = np.array([7.0, -5.0])
+# cov_03 = np.array([[1.2, 0.5], 
+#                    [0.5, 1]]) 
+# dist_03 = np.random.multivariate_normal(mean_03, cov_01, 100)
 
-mean_04 = np.array([2.0, -7.0])
-cov_04 = np.array([[1.2, 0.5], [0.5, 1.3]])
-dist_04 = np.random.multivariate_normal(mean_04, cov_01, 100)
+# mean_04 = np.array([2.0, -7.0])
+# cov_04 = np.array([[1.2, 0.5], [0.5, 1.3]])
+# dist_04 = np.random.multivariate_normal(mean_04, cov_01, 100)
 
-data = np.vstack((dist_01, dist_02, dist_03, dist_04))
-np.random.shuffle(data)
+# data = np.vstack((dist_01, dist_02, dist_03, dist_04))
+# np.random.shuffle(data)
+
+# Parameters for different clusters
+mean_01 = 0.0
+std_01 = 1.0  # Standard deviation
+dist_01 = np.random.normal(mean_01, std_01, 100)
+
+mean_02 = 6.0
+std_02 = 1.5
+dist_02 = np.random.normal(mean_02, std_02, 100)
+
+mean_03 = 7.0
+std_03 = 1.2
+dist_03 = np.random.normal(mean_03, std_03, 100)
+
+mean_04 = 2.0
+std_04 = 1.2
+dist_04 = np.random.normal(mean_04, std_04, 100)
+
+mean_05 = 15.0
+std_05 = 1
+dist_05 = np.random.normal(mean_05, std_05, 50)
+
+# Combine all distributions into a single dataset
+data = np.concatenate((dist_01, dist_02, dist_03, dist_04, dist_05))
+np.random.shuffle(data) 
+
+zeros = np.zeros(data.shape[0])
+
+# Stack them together
+data_2d = np.column_stack((data, zeros))
+
+print(data_2d)
+
+
 
 def plot(data, centroids):
     plt.scatter(data[:, 0], data[:, 1], marker='.',
@@ -216,11 +250,10 @@ def plot_clusters(data: np.array, centroids: np.array, labels: np.array, silhoue
     plt.title(f"Clusters with a Silhouette Score of {silhouette_score}")
 
     plt.legend()
-    plt.xlim(-5, 12)
+    plt.xlim(-5, 20)
     plt.ylim(-10, 15)
     plt.show()
 
-
-centroids, labels, k, score = k_means_fit(data=data, max_k=50)
+centroids, labels, k, score = k_means_fit(data=data_2d, max_k=50)
 
 
