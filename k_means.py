@@ -145,8 +145,9 @@ def k_means_fit(data: np.array, max_k: int = 100) -> tuple[np.array, np.array, i
     centroids_array = []
     labels_array = []
     silhouette_scores = []
+    start_k = 2
 
-    for k in range(2, max_k):
+    for k in range(start_k, max_k):
     
         centroids, labels = k_means(data=data,k=k)
         
@@ -157,7 +158,7 @@ def k_means_fit(data: np.array, max_k: int = 100) -> tuple[np.array, np.array, i
         silhouette_scores.append(silhouette_score(data=data, labels=labels, centroids=centroids))
 
     optimal_index = np.argmax(silhouette_scores)
-    optimal_k = optimal_index + 1
+    optimal_k = optimal_index + start_k
     optimal_centroids  = centroids_array[optimal_index]
     optimal_labels = labels_array[optimal_index]
     optimal_silhouette_score = silhouette_scores[optimal_index]
