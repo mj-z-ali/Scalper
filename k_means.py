@@ -66,6 +66,26 @@ def single_point_in_densest_area(points_a: np.array, points_b: np.array, block_s
             distance_sums[i:i+block_size] += distance_sums_for_block
     
     return points_a[np.argmin(distance_sums)]
+
+def distances_to_nearest_centroid(points: np.array, centroids: np.array, block_size: int = 4000) -> np.array:
+
+    minimum_distances = np.full((points.shape[0]), fill_value=np.inf)
+
+    for i in range(0, points.shape[0], block_size):
+
+        points_block = points[i:i+block_size]
+
+        for j in range(0, centroids.shape[0], block_size):
+
+            centroids_block = centroids[j:j+block_size]
+
+            distances_to_centroids = points_to_points_distances(points_a=points_block, points_b=centroids_block)
+
+            current_smallest_distances_to_centroid = minimums(distances_to_centroids)
+
+            minimum_distances[i:i+block_size] = np.minimum(minimum_distances[i:i+block_size], current_smallest_distances_to_centroid)
+
+    return minimum_distances
     
 def point_nearest_to_most(points_a: np.array, points_b: np.array) -> np.array:
 
@@ -90,6 +110,9 @@ def initialize_centroids(points: np.array, k: int) -> np.array:
         # (n-points,) matrix where each value is the shortest distance to a centroid.
         minimum_distances = minimums(values_array=distances)
 
+        minimum_distances_test = distances_to_nearest_centroid(points=points, centroids=centroids)
+
+        print(f"test: {minimum_distances==minimum_distances_test}")
         # Sort distances in descending order.
         sorted_minimum_distances = np.argsort(minimum_distances)[::-1]
 
