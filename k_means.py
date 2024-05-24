@@ -48,6 +48,24 @@ def points_to_points_distances(points_a: np.array, points_b: np.array) -> np.arr
     
     return sum_of_squared_differences
 
+
+def single_point_in_densest_area(points_a: np.array, points_b: np.array, block_size: int = 4000) -> np.array:
+
+    distance_sums = np.zeros(points_a.shape[0])
+
+    for i in range(0, points_a.shape[0], block_size):
+
+        points_a_block = points_a[i:i+block_size]
+
+        for j in range(0, points_b.shape[0], block_size):
+
+            points_b_block = points_b[j:j+block_size]
+
+            distance_sums_for_block = np.sum(points_to_points_distances(points_a=points_a_block, points_b=points_b_block), axis=1)
+
+            distance_sums[i:i+block_size] += distance_sums_for_block
+    
+    return points_a[np.argmin(distance_sums)]
     
 def point_nearest_to_most(points_a: np.array, points_b: np.array) -> np.array:
 
@@ -63,7 +81,7 @@ def point_nearest_to_most(points_a: np.array, points_b: np.array) -> np.array:
 def initialize_centroids(points: np.array, k: int) -> np.array:
 
     # Initialize the first centroid to the point that has the shortest distance to all other points.
-    centroids = np.array([point_nearest_to_most(points_a=points, points_b=points)])
+    centroids = np.array([single_point_in_densest_area(points_a=points, points_b=points)])
 
     for i in range(1, k):
         # (n-points, m-centroids) matrix where each value is the distance from a point to a centroid.
@@ -79,7 +97,7 @@ def initialize_centroids(points: np.array, k: int) -> np.array:
         top_percentile_indices = sorted_minimum_distances[:max(int((0.25/i) * len(sorted_minimum_distances)), k)]
         
         # From the refined list of points, find the one nearest to all points.
-        next_centroid = [point_nearest_to_most(points_a=points[top_percentile_indices], points_b=points)]
+        next_centroid = [single_point_in_densest_area(points_a=points[top_percentile_indices], points_b=points)]
 
         centroids = np.append(centroids, next_centroid, axis=0)
 
