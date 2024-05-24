@@ -86,6 +86,24 @@ def distances_to_nearest_centroid(points: np.array, centroids: np.array, block_s
             minimum_distances[i:i+block_size] = np.minimum(minimum_distances[i:i+block_size], current_smallest_distances_to_centroid)
 
     return minimum_distances
+
+def means_of_distances(points_a: np.array, points_b: np.array, block_size: int = 4000) -> np.array:
+
+    means = np.zeros(points_a.shape[0])
+
+    for i in range(0, points_a.shape[0], block_size):
+
+        points_a_block = points_a[i:i+block_size]
+
+        for j in range(0, points_b.shape[0], block_size):
+
+            points_b_block = points_b[j:j+block_size]
+
+            distances = points_to_points_distances(points_a=points_a_block, points_b=points_b_block)
+
+            means[i:i+block_size] = np.add(means[i:i+block_size], np.sum(distances, axis=1) / points_b.shape[0])
+
+    return means
     
 def point_nearest_to_most(points_a: np.array, points_b: np.array) -> np.array:
 
@@ -104,15 +122,10 @@ def initialize_centroids(points: np.array, k: int) -> np.array:
     centroids = np.array([single_point_in_densest_area(points_a=points, points_b=points)])
 
     for i in range(1, k):
-        # (n-points, m-centroids) matrix where each value is the distance from a point to a centroid.
-        distances = points_to_points_distances(points_a=points, points_b=centroids)
 
         # (n-points,) matrix where each value is the shortest distance to a centroid.
-        minimum_distances = minimums(values_array=distances)
+        minimum_distances = distances_to_nearest_centroid(points=points, centroids=centroids)
 
-        minimum_distances_test = distances_to_nearest_centroid(points=points, centroids=centroids)
-
-        print(f"test: {minimum_distances==minimum_distances_test}")
         # Sort distances in descending order.
         sorted_minimum_distances = np.argsort(minimum_distances)[::-1]
 
@@ -167,11 +180,11 @@ def silhouette_score(data: np.array, labels: np.array, centroids: np.array) -> f
 
         current_data_points = data[labels==k]
 
-        a_i = points_to_points_distances(points_a=current_data_points, points_b=current_data_points).mean(axis=1)
+        a_i = means_of_distances(points_a=current_data_points, points_b=current_data_points)
 
         other_clusters = np.array([data[labels==l] for l in range(centroids.shape[0]) if k != l], dtype=object)
 
-        avg_distance_to_other_clusters = np.array([points_to_points_distances(points_a=current_data_points, points_b=other_cluster).mean(axis=1) for other_cluster in other_clusters])
+        avg_distance_to_other_clusters = np.array([means_of_distances(points_a=current_data_points, points_b=other_cluster) for other_cluster in other_clusters])
 
         b_i = avg_distance_to_other_clusters[np.argmin(avg_distance_to_other_clusters, axis=0), np.arange(avg_distance_to_other_clusters.shape[1])]
 
