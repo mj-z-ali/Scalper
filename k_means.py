@@ -175,16 +175,10 @@ def k_means(data: np.array, k: int = 2, max_iterations: int = 100) -> tuple[np.a
     centroids = initialize_centroids(points=data, k=k)
 
     for i in range(max_iterations):
-        # Distances of points to centroids.
-        # Results in a (n-points, m-centroids) matrix.
-        distances = points_to_points_distances(points_a=data, points_b=centroids)
-
-        nearest_centroid_indices = np.argmin(distances, axis=1)
-
-        print(f"labels test {nearest_centroid_indices == minimum_distance_indices(points_a=data, points_b=centroids)}")
+    
+        nearest_centroid_indices = minimum_distance_indices(points_a=data, points_b=centroids)
 
         new_centroids = move_centroids(data=data, centroids=centroids, nearest_centroid_indices=nearest_centroid_indices)
-
 
         if np.all(centroids == new_centroids):
             print(f"Iterations: {i}")
@@ -196,9 +190,7 @@ def k_means(data: np.array, k: int = 2, max_iterations: int = 100) -> tuple[np.a
 
 def k_means_model(data: np.array, centroids: np.array) -> np.array:
 
-    distances = points_to_points_distances(points_a=data, points_b=centroids)
-
-    return np.argmin(distances, axis=1)
+    return minimum_distance_indices(points_a=data, points_b=centroids)
 
 def silhouette_score(data: np.array, labels: np.array, centroids: np.array) -> float:
     silhouette_scores = np.array([])
