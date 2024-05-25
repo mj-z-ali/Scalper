@@ -104,7 +104,32 @@ def means_of_distances(points_a: np.array, points_b: np.array, block_size: int =
             means[i:i+block_size] = np.add(means[i:i+block_size], np.sum(distances, axis=1) / points_b.shape[0])
 
     return means
+
+def minimum_distance_indices(points_a: np.array, points_b: np.array, block_size: int = 4000) -> np.array:
+
+    minimum_distances = np.full((points_a.shape[0]), fill_value=np.inf)
+    minimum_distances_indices = np.full((points_a.shape[0]), fill_value=-1)
+
+    for i in range(0, points_a.shape[0], block_size):
+
+        points_a_block = points_a[i:i+block_size]
+
+        for j in range(0, points_b.shape[0], block_size):
+
+            points_b_block = points_b[j:j+block_size]
+
+            distances_for_block = points_to_points_distances(points_a=points_a_block, points_b=points_b_block)
+            
+            minimum_distance_indices_for_block = np.argmin(distances_for_block, axis=1)
+
+            minimum_distances_for_block = distances_for_block[np.arange(distances_for_block.shape[0]), minimum_distance_indices_for_block]
+
+            minimum_distances_indices[i:i+block_size] = np.where(minimum_distances_for_block < minimum_distances[i:i+block_size], minimum_distance_indices_for_block + j, minimum_distances_indices[i:i+block_size])
+
+            minimum_distances[i:i+block_size] = np.minimum(minimum_distances[i:i+block_size], minimum_distances_for_block)
     
+    return minimum_distances_indices
+
 def point_nearest_to_most(points_a: np.array, points_b: np.array) -> np.array:
 
     # Total distances of each point to all other points.
@@ -155,6 +180,8 @@ def k_means(data: np.array, k: int = 2, max_iterations: int = 100) -> tuple[np.a
         distances = points_to_points_distances(points_a=data, points_b=centroids)
 
         nearest_centroid_indices = np.argmin(distances, axis=1)
+
+        print(f"labels test {nearest_centroid_indices == minimum_distance_indices(points_a=data, points_b=centroids)}")
 
         new_centroids = move_centroids(data=data, centroids=centroids, nearest_centroid_indices=nearest_centroid_indices)
 
