@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import k_means as km
 
+import time
 
 
 def bars(trades_df: pd.DataFrame, interval: str = '5T') -> list[pd.DataFrame]:
@@ -26,6 +27,21 @@ def ohlctb(bars: list[pd.DataFrame]) -> pd.DataFrame:
     
     return ohlc_df
 
+def insert_top_bottom_columns(bar_df: pd.DataFrame) -> pd.DataFrame:
+
+    bar_df_copy = bar_df.copy(deep=True)
+
+    red_bars = bar_df_copy['close'] <= bar_df_copy['open']
+    
+    bar_df_copy['top'] = np.where(red_bars, bar_df_copy['open'], bar_df_copy['close'])
+
+    bar_df_copy['bottom'] = np.where(red_bars, bar_df_copy['close'], bar_df_copy['open'])
+
+    bar_df_copy['red'] = red_bars
+
+    return  bar_df_copy
+
+
 def diff_matrix(matrix: np.array) -> np.array:
 
     n = len(matrix)
@@ -38,29 +54,98 @@ def diff_matrix(matrix: np.array) -> np.array:
 
     return diff_matrix[upper_row, upper_columns]
 
+def area_matrix(matrix: np.array) -> np.array:
 
+    n = len(matrix)
 
-trades = pd.read_csv('small_trades.csv', parse_dates=['timestamp'], index_col='timestamp')
+    matrix_reshaped = matrix.reshape((n, 1))
 
-bars_list = bars(trades_df=trades, interval='5T')
+    diff_matrix  = 100*(matrix_reshaped - matrix_reshaped.T) / matrix_reshaped
 
-ohlctb_df = ohlctb(bars=bars_list)
+    lower_row, lower_columns = np.tril_indices(n=n, k=0)
 
+    diff_matrix[lower_row, lower_columns] = 0
+
+    area_matrix = diff_matrix.cumsum(axis=1)
+
+    total_area = np.sum(area_matrix)
+
+    area_ratio = area_matrix
+
+    upper_row, upper_columns = np.triu_indices(n=n, k=1)
+
+    return area_ratio[upper_row, upper_columns]
+
+# start_time_for_read_csv  = time.time()
+# trades = pd.read_csv('18_12_2023_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
+# end_time_for_read_csv = time.time()
+
+# start_time_for_creating_bars = time.time()
+# bars_list = bars(trades_df=trades, interval='5T')
+# end_time_for_creating_bars = time.time()
+
+# start_time_for_creating_ohlctb = time.time()
+# ohlctb_df = ohlctb(bars=bars_list)
+# end_time_for_creating_ohlctb = time.time()
+
+# ohlctb_csv = ohlctb_df.to_csv('small_ohlctb_df', index=True)
+
+ohlctb_df = pd.read_csv('18_12_2023_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
+
+start_time_for_top_differences = time.time()
 top_differences = np.abs(np.array([diff_matrix(matrix=five_minute_chart_df['top'].values)
                         for _, five_minute_chart_df in ohlctb_df.resample('1D') 
                         if not five_minute_chart_df.dropna().empty]).flatten())
+end_time_for_top_differences = time.time()
 
-print(f"top_differences shape  {top_differences.shape}")
+areas = np.array([area_matrix(matrix=five_minute_chart_df['top'].values)
+                        for _, five_minute_chart_df in ohlctb_df.resample('1D') 
+                        if not five_minute_chart_df.dropna().empty]).flatten()
+
+# print(f"time_for_read_csv {end_time_for_read_csv-start_time_for_read_csv}")
+# print(f"time_for_creating_bars {end_time_for_creating_bars-start_time_for_creating_bars}")
+# print(f"time_for_creating_ohlctb {end_time_for_creating_ohlctb-start_time_for_creating_ohlctb}")
+print(f"time_for_top_differences {end_time_for_top_differences-start_time_for_top_differences}")
 
 zeroes = np.zeros(top_differences.shape[0])
 
 top_differences_2d = np.column_stack((top_differences, zeroes))
 
-print(f"top differences_2d shap  {top_differences_2d.shape}")
+print(f"small_differences shape  {top_differences.shape}")
+print(f"top differences_2d shape  {top_differences_2d.shape}")
 
 
-centroids, labels, k, score = km.k_means_fit(data=top_differences_2d, max_k=25)
+centroids, labels, k, score = km.k_means_fit(data=top_differences_2d, start_k=25, max_k=50)
 
 print(f"centroids, labels, k, score {centroids, labels, k, score}")
+
+medium_centroids_csv = centroids.to_csv('medium_centroids.csv', index=True)
 # ohlctb_df.to_csv('out.csv', index=True)
 
+'''
+[[0.09664392, 0.        ],
+[1.13651666, 0.        ],
+[0.44012713, 0.        ],
+[0.23816486, 0.        ],
+[0.72944893, 0.        ],
+[0.01223435, 0.        ],
+[1.33493495, 0.        ],
+[0.92921289, 0.        ],
+[0.16389102, 0.        ],
+[0.32862124, 0.        ],
+[0.57206279, 0.        ],
+[1.19805531, 0.        ],
+[0.06704812, 0.        ],
+[1.00281727, 0.        ],
+[0.82669234, 0.        ],
+[0.38175386, 0.        ],
+[0.19932711, 0.        ],
+[0.12932954, 0.        ],
+[0.27988558, 0.        ],
+[0.64591077, 0.        ],
+[1.73549001, 0.        ],
+[0.50263636, 0.        ],
+[1.06943946, 0.        ],
+[1.26135835, 0.        ],
+[0.03902596, 0.        ]]
+'''
