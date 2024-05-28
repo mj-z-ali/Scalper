@@ -41,13 +41,35 @@ def insert_top_bottom_columns(bar_df: pd.DataFrame) -> pd.DataFrame:
 
     return  bar_df_copy
 
-def top_differences(bar_df: pd.DataFrame) -> pd.DataFrame:
+def top_differences(bar_df: pd.DataFrame) -> np.array:
 
     top_differences = np.abs(np.array([diff_matrix(matrix=current_bar_df['top'].values)
                         for _, current_bar_df in bar_df.resample('1D') 
                         if not current_bar_df.dropna().empty]).flatten())
     
     return top_differences
+
+def resistance_levels(bar_df: pd.DataFrame, centroids: np.array) -> np.array:
+
+    top_differences = top_differences(bar_df=bar_df)
+
+    bar_tops = bar_df['top'].values
+
+    n = len(bar_tops)
+
+    bar_tops_tiled = np.tile(bar_tops, (n, 1))
+
+    upper_row, upper_columns = np.triu_indices(n=n, k=1)
+
+    bar_tops_upper_tri = bar_tops_tiled[upper_row][upper_columns]
+
+    labels = km.k_means_model(data=top_differences, centroids=centroids)
+
+    centroid_nearest_zero = np.argmin(centroids, axis=0)[0]
+
+    small_top_diff_indices = np.where(labels==centroid_nearest_zero)
+
+    return bar_tops_upper_tri[small_top_diff_indices]
 
 def diff_matrix(matrix: np.array) -> np.array:
 
@@ -97,39 +119,39 @@ def area_matrix(matrix: np.array) -> np.array:
 
 # ohlctb_csv = ohlctb_df.to_csv('small_ohlctb_df', index=True)
 
-ohlctb_df = pd.read_csv('18_12_2023_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
+# ohlctb_df = pd.read_csv('18_12_2023_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
 
-start_time_for_top_differences = time.time()
-top_differences = np.abs(np.array([diff_matrix(matrix=five_minute_chart_df['top'].values)
-                        for _, five_minute_chart_df in ohlctb_df.resample('1D') 
-                        if not five_minute_chart_df.dropna().empty]).flatten())
-end_time_for_top_differences = time.time()
+# start_time_for_top_differences = time.time()
+# top_differences = np.abs(np.array([diff_matrix(matrix=five_minute_chart_df['top'].values)
+#                         for _, five_minute_chart_df in ohlctb_df.resample('1D') 
+#                         if not five_minute_chart_df.dropna().empty]).flatten())
+# end_time_for_top_differences = time.time()
 
-areas = np.array([area_matrix(matrix=five_minute_chart_df['top'].values)
-                        for _, five_minute_chart_df in ohlctb_df.resample('1D') 
-                        if not five_minute_chart_df.dropna().empty]).flatten()
+# areas = np.array([area_matrix(matrix=five_minute_chart_df['top'].values)
+#                         for _, five_minute_chart_df in ohlctb_df.resample('1D') 
+#                         if not five_minute_chart_df.dropna().empty]).flatten()
 
 # print(f"time_for_read_csv {end_time_for_read_csv-start_time_for_read_csv}")
 # print(f"time_for_creating_bars {end_time_for_creating_bars-start_time_for_creating_bars}")
 # print(f"time_for_creating_ohlctb {end_time_for_creating_ohlctb-start_time_for_creating_ohlctb}")
-print(f"time_for_top_differences {end_time_for_top_differences-start_time_for_top_differences}")
+# print(f"time_for_top_differences {end_time_for_top_differences-start_time_for_top_differences}")
 
-zeroes = np.zeros(top_differences.shape[0])
+# zeroes = np.zeros(top_differences.shape[0])
 
-top_differences_2d = np.column_stack((top_differences, zeroes))
+# top_differences_2d = np.column_stack((top_differences, zeroes))
 
-print(f"small_differences shape  {top_differences.shape}")
-print(f"top differences_2d shape  {top_differences_2d.shape}")
+# print(f"small_differences shape  {top_differences.shape}")
+# print(f"top differences_2d shape  {top_differences_2d.shape}")
 
 
-centroids, labels, k, score = km.k_means_fit(data=top_differences_2d, start_k=25, max_k=50)
+# centroids, labels, k, score = km.k_means_fit(data=top_differences_2d, start_k=25, max_k=50)
 
-print(f"centroids, labels, k, score {centroids, labels, k, score}")
+# print(f"centroids, labels, k, score {centroids, labels, k, score}")
 
-medium_centroids_csv = centroids.to_csv('medium_centroids.csv', index=True)
+# medium_centroids_csv = centroids.to_csv('medium_centroids.csv', index=True)
 # ohlctb_df.to_csv('out.csv', index=True)
 
-'''
+centroids = np.array(
 [[0.09664392, 0.        ],
 [1.13651666, 0.        ],
 [0.44012713, 0.        ],
@@ -155,4 +177,4 @@ medium_centroids_csv = centroids.to_csv('medium_centroids.csv', index=True)
 [1.06943946, 0.        ],
 [1.26135835, 0.        ],
 [0.03902596, 0.        ]]
-'''
+)
