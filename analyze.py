@@ -41,6 +41,13 @@ def insert_top_bottom_columns(bar_df: pd.DataFrame) -> pd.DataFrame:
 
     return  bar_df_copy
 
+def top_differences(bar_df: pd.DataFrame) -> pd.DataFrame:
+
+    top_differences = np.abs(np.array([diff_matrix(matrix=current_bar_df['top'].values)
+                        for _, current_bar_df in bar_df.resample('1D') 
+                        if not current_bar_df.dropna().empty]).flatten())
+    
+    return top_differences
 
 def diff_matrix(matrix: np.array) -> np.array:
 
