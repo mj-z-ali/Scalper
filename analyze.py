@@ -51,7 +51,11 @@ def top_differences(bar_df: pd.DataFrame) -> np.array:
 
 def resistance_levels(bar_df: pd.DataFrame, centroids: np.array) -> np.array:
 
-    top_differences = top_differences(bar_df=bar_df)
+    top_diffs = top_differences(bar_df=bar_df)
+
+    zeroes = np.zeros(top_diffs.shape[0])
+
+    top_diffs_2d = np.column_stack((top_diffs, zeroes))   
 
     bar_tops = bar_df['top'].values
 
@@ -63,7 +67,7 @@ def resistance_levels(bar_df: pd.DataFrame, centroids: np.array) -> np.array:
 
     bar_tops_upper_tri = bar_tops_tiled[upper_row][upper_columns]
 
-    labels = km.k_means_model(data=top_differences, centroids=centroids)
+    labels = km.k_means_model(data=top_diffs_2d, centroids=centroids)
 
     centroid_nearest_zero = np.argmin(centroids, axis=0)[0]
 
