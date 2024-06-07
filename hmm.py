@@ -22,7 +22,8 @@ def forward_matrix(alpha_t_matrix: np.array, a_matrix: np.array,
         return alpha_t_matrix
     
     # Compute alpha of each state at each time_step.
-    # Result is a (num_of_hidden_states x observations_size) alpha_matrix.
+    # Result is a (num_of_hidden_states x observations_size + 1) alpha_matrix,
+    # plus 1 since time step 0 is included. 
     # Each alpha_matrix[i, t] is the alpha of state i at time step t.
     return forward_matrix(
             alpha_t_matrix=np.concatenate((
