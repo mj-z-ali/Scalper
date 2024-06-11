@@ -101,6 +101,21 @@ def final_hidden_state_a_array(size: int, state_i: int) -> np.array:
     # a probability of 1 for self-transition and 0 to all other states.
     return np.array([[0] * state_i + [1] + [0] * (size-1-state_i)])
 
+def final_hidden_state_b_array(size: int, emission_k: int) -> np.array:
+    # emission at index emission_k will receive 
+    # a probability of 1 since final state can only emit it. 
+    return np.array([[0] * emission_k + [1] + [0] * (size-1-emission_k)])
+
+def gamma_denominator_array(g_matrix_transpose: np.array) -> np.array:
+    
+    # Results in a (num_of_hidden_states) matrix s.t.
+    # d[i] is the sum of all state gammas transitioned from
+    # state i across all timesteps.
+    g_denominator_array = np.array([np.sum(g_matrix_transpose, axis=(1,2))]).T
+
+    # Fix divide-by-zero error due to final hidden state having 0 gammas at all timesteps.
+    return np.where(g_denominator_array==0, 1, g_denominator_array)
+
 def learn_a_matrix(alpha_matrix: np.array, beta_matrix: np.array, a_matrix: np.array, b_matrix: np.array, observations: np.array, time_step: int, final_state_i: int) -> np.array:
 
     # Result is a (num_of_timestep, num_of_hidden_states, num_of_hidden_states) matrix s.t.,
@@ -128,14 +143,51 @@ def learn_a_matrix(alpha_matrix: np.array, beta_matrix: np.array, a_matrix: np.a
                                                         final_hidden_state_a_array(size=a_matrix.shape[0],state_i=final_state_i), 
                                                         learned_a_matrix[final_state_i+1:]
                                                     ))
-    
     # Normalize due to floating-point errors.
     # i-th state transitions must sum to 1.
     return learned_a_matrix_with_final_state / np.sum(learned_a_matrix_with_final_state, axis=1)
 
+def observation_occurence_matrix(observations:np.array, number_of_emissions: int) -> np.array:
+
+    emissions = np.array([np.arange(number_of_emissions)]).T
+
+    # A (number_of_emissions, observations_size) one-hot encoded matrix s.t.
+    # observation_occurence_matrix[i,j] denotes if emission_i occurs in observation_j.
+    return  (emissions == observations).astype(int)
+
+def learned_b_numerator_matrix(g_matrix: np.array, number_of_emissions: int) -> np.array:
+
+    # Reshape observation_occurence_matrix to a (1,1,number_of_emissions, observations_size) matrix.
+    observation_occurence_matrix_reshape = observation_occurence_matrix(observations=observations, number_of_emissions=number_of_emissions)[:,:,np.newaxis,np.newaxis]
+
+    # Reshape gamma matrix to a (1, observations_size, num_of_hidden_states, num_of_hidden_states) matrix.
+    gamma_matrix_reshape = g_matrix[np.newaxis,:,:,:]
+
+    # A (number_of_emissions, num_of_hidden_states, timesteps, num_of_hidden_states) matrix.
+    # For  obs_occur_gamma_product_matrix[k, i, t, j], if emission_k does not occur at timestep t, then
+    # all gamma values are zero for those k,t pairs.
+    # Matrix is transposed for easier summation.
+    obs_occur_gamma_product_matrix = (observation_occurence_matrix_reshape * gamma_matrix_reshape).transpose(0,2,1,3)
+    
+    # Results to a (num_of_hidden_states, num_of_emissions) matrix[j,k] s.t
+    # each value is the numerator for computing b_jk for hidden_state_j and emission_k.
+    return np.sum(obs_occur_gamma_product_matrix, axis=(2,3)).T
+
+def learn_b_matrix(g_matrix: np.array, g_denominator_array: np.array, number_of_emissions: int, final_state_i: int, final_emission_k: int) -> np.array:
+
+    # Results in a (num_of_hidden_states, num_of_emissions) matrix s.t.
+    # each m[j,k] is the updated b value for hidden state j and emission k.
+    learned_b_matrix = learned_b_numerator_matrix(g_matrix=g_matrix, number_of_emissions=number_of_emissions) / g_denominator_array
+
+    # Replace final state row to since it can only emit final emission.
+    return np.concatenate((learned_b_matrix[:final_state_i], 
+                            final_hidden_state_b_array(size=number_of_emissions, emission_k=final_emission_k), 
+                            learned_b_matrix[final_state_i+1:]
+                        ))
+
 a_matrix = np.array([[1,0,0,0], [0.2,0.3,0.1,0.4], [0.2,0.5,0.2,0.1], [0.7,0.1,0.1,0.1]])
 b_matrix = np.array([[1,0,0,0,0], [0,0.3,0.4,0.1,0.2], [0,0.1,0.1,0.7,0.1], [0,0.5,0.2,0.1,0.2]])
-observations  = np.array([[1,3,2,0]])
+observations  = np.array([[4,1,3,2,0]])
 
 alpha_matrix = forward_matrix(alpha_t_matrix=alpha_0_array(size=4, state_i=1),
                             a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=0)
@@ -151,4 +203,12 @@ print(f"beta matrix {beta_matrix}")
 
 print(f"learned a_matrix shape {learned_a_matrix.shape}")
 print(f"learned a_matrix {learned_a_matrix}")
-
+print(np.allclose(learned_a_matrix.sum(axis=1), 1))
+gamma_mat = gamma_matrix(alpha_matrix=alpha_matrix, beta_matrix=beta_matrix, a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=0)
+    # Transpose in order to do easy summations.
+    # We have gamma_mat_transpose[i,t,j]
+gamma_mat_transpose = np.transpose(gamma_mat, (1, 0, 2))
+learned_b_matrix = learn_b_matrix(g_matrix=gamma_mat, g_denominator_array=gamma_denominator_array(g_matrix_transpose=gamma_mat_transpose),number_of_emissions=b_matrix.shape[1],final_state_i=0, final_emission_k=0)
+print(f"learned b_matrix shape {learned_b_matrix.shape}")
+print(f"learned b_matrix  {learned_b_matrix}")
+print(np.allclose(learned_b_matrix.sum(axis=1), 1))
