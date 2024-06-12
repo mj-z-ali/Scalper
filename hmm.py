@@ -94,6 +94,8 @@ def gamma_matrix(alpha_matrix: np.array, beta_matrix: np.array, a_matrix: np.arr
         gamma_t_to_T_mat
     ))
 
+    print(np.sum(alpha_matrix[-1]))
+    print(alpha_matrix)
     return gamma_mat / np.sum(alpha_matrix[-1])
 
 def final_hidden_state_a_array(size: int, state_i: int) -> np.array:
@@ -106,8 +108,9 @@ def final_hidden_state_b_array(size: int, emission_k: int) -> np.array:
     # a probability of 1 since final state can only emit it. 
     return np.array([[0] * emission_k + [1] + [0] * (size-1-emission_k)])
 
-def gamma_denominator_array(g_matrix_transpose: np.array) -> np.array:
+def gamma_denominator_array(g_matrix: np.array) -> np.array:
     
+    g_matrix_transpose = np.transpose(g_matrix,(1,0,2))
     # Results in a (num_of_hidden_states) matrix s.t.
     # d[i] is the sum of all state gammas transitioned from
     # state i across all timesteps.
@@ -116,36 +119,29 @@ def gamma_denominator_array(g_matrix_transpose: np.array) -> np.array:
     # Fix divide-by-zero error due to final hidden state having 0 gammas at all timesteps.
     return np.where(g_denominator_array==0, 1, g_denominator_array)
 
-def learn_a_matrix(alpha_matrix: np.array, beta_matrix: np.array, a_matrix: np.array, b_matrix: np.array, observations: np.array, time_step: int, final_state_i: int) -> np.array:
+def learned_a_numerator_matrix(g_matrix: np.array) -> np.array:
 
-    # Result is a (num_of_timestep, num_of_hidden_states, num_of_hidden_states) matrix s.t.,
-    # every gamma_mat[t,i,j] is the gamma of hidden states i and j at timestep t.
-    gamma_mat = gamma_matrix(alpha_matrix=alpha_matrix, beta_matrix=beta_matrix, a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=time_step)
     # Transpose in order to do easy summations.
     # We have gamma_mat_transpose[i,t,j]
-    gamma_mat_transpose = np.transpose(gamma_mat, (1, 0, 2))
+    gamma_mat_transpose = np.transpose(g_matrix, (1, 0, 2))
 
     # Sum each state pair transition with respect to time t.
     # Results in a (num_of_hidden_states, num_of_hidden_states) matrix s.t.
     # learned_a_numerator[i,j] is the sum of gammas from state i to j across all timesteps.
-    learned_a_numerator = np.sum(gamma_mat_transpose, axis=1)
+    return np.sum(gamma_mat_transpose, axis=1)
 
-    # Results in a (num_of_hidden_states) matrix s.t.
-    # learned_a_denominator[i] is the sum of all state gammas transitioned from
-    # state i across all timesteps.
-    learned_a_denominator = np.array([np.sum(gamma_mat_transpose, axis=(1,2))]).T
+
+def learn_a_matrix(g_matrix: np.array, g_denominator_array: np.array, number_of_hidden_states: int, final_state_i: int) -> np.array:
 
     # Updated a_matrix but final state has 0 transitions due to an alpha of 0 in all timesteps.
-    learned_a_matrix = learned_a_numerator / np.where(learned_a_denominator==0, 1, learned_a_denominator)
+    learned_a_matrix = learned_a_numerator_matrix(g_matrix=g_matrix) / g_denominator_array
 
     # Replace final state transition row.
-    learned_a_matrix_with_final_state = np.concatenate((learned_a_matrix[:final_state_i], 
-                                                        final_hidden_state_a_array(size=a_matrix.shape[0],state_i=final_state_i), 
+    return np.concatenate((learned_a_matrix[:final_state_i], 
+                                                        final_hidden_state_a_array(size=number_of_hidden_states,state_i=final_state_i), 
                                                         learned_a_matrix[final_state_i+1:]
                                                     ))
-    # Normalize due to floating-point errors.
-    # i-th state transitions must sum to 1.
-    return learned_a_matrix_with_final_state / np.sum(learned_a_matrix_with_final_state, axis=1)
+
 
 def observation_occurence_matrix(observations:np.array, number_of_emissions: int) -> np.array:
 
@@ -185,30 +181,60 @@ def learn_b_matrix(g_matrix: np.array, g_denominator_array: np.array, number_of_
                             learned_b_matrix[final_state_i+1:]
                         ))
 
-a_matrix = np.array([[1,0,0,0], [0.2,0.3,0.1,0.4], [0.2,0.5,0.2,0.1], [0.7,0.1,0.1,0.1]])
-b_matrix = np.array([[1,0,0,0,0], [0,0.3,0.4,0.1,0.2], [0,0.1,0.1,0.7,0.1], [0,0.5,0.2,0.1,0.2]])
-observations  = np.array([[4,1,3,2,0]])
+def baum_welch(a_matrix: np.array, b_matrix: np.array, observations: np.array, initial_state_i: int, final_state_i: int, final_emission_k: int, iterations: int, max_iterations: int) -> np.array:
 
-alpha_matrix = forward_matrix(alpha_t_matrix=alpha_0_array(size=4, state_i=1),
+    alpha_matrix = forward_matrix(alpha_t_matrix=alpha_0_array(size=a_matrix.shape[0], state_i=initial_state_i),
                             a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=0)
 
-beta_matrix = backward_matrix(beta_t_matrix=beta_T_array(size=4, state_i=0), a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=observations.size-1)
+    beta_matrix = backward_matrix(beta_t_matrix=beta_T_array(size=a_matrix.shape[0], state_i=final_state_i), 
+                            a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=observations.size-1)
+    # Result is a (num_of_timestep, num_of_hidden_states, num_of_hidden_states) matrix s.t.,
+    # every gamma_mat[t,i,j] is the gamma of hidden states i and j at timestep t.
+    g_matrix = gamma_matrix(alpha_matrix=alpha_matrix, beta_matrix=beta_matrix, a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=0)
+    
+    g_denominator_array = gamma_denominator_array(g_matrix=g_matrix)
 
-learned_a_matrix = learn_a_matrix(alpha_matrix=alpha_matrix, beta_matrix=beta_matrix, a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=0, final_state_i=0)
-print(f"alpha matrix shape {alpha_matrix.shape}")
-print(f"alpha matrix {alpha_matrix}")
+    learned_a_matrix = learn_a_matrix(g_matrix=g_matrix, g_denominator_array=g_denominator_array, number_of_hidden_states=a_matrix.shape[0], final_state_i=final_state_i)
 
-print(f"beta matrix shape {beta_matrix.shape}")
-print(f"beta matrix {beta_matrix}")
+    learned_b_matrix = learn_b_matrix(g_matrix=g_matrix, g_denominator_array=g_denominator_array, number_of_emissions=b_matrix.shape[1], final_state_i=final_state_i, final_emission_k=final_emission_k)
+
+    if (np.linalg.norm(a_matrix-learned_a_matrix) < .00001 and np.linalg.norm(b_matrix-learned_b_matrix) < .00001) or (iterations == max_iterations):
+
+        return learned_a_matrix, learned_b_matrix, iterations+1
+    
+    return baum_welch(a_matrix=learned_a_matrix, b_matrix=learned_b_matrix, observations=observations, 
+                    initial_state_i=initial_state_i, final_state_i=final_state_i, 
+                    final_emission_k=final_emission_k, iterations=iterations+1, max_iterations=max_iterations)
+
+a_matrix = np.array([[1,0,0,0], [0.2,0.3,0.1,0.4], [0.2,0.5,0.2,0.1], [0.7,0.1,0.1,0.1]])
+b_matrix = np.array([[1,0,0,0,0], [0,0.3,0.4,0.1,0.2], [0,0.1,0.1,0.7,0.1], [0,0.5,0.2,0.1,0.2]])
+observations  = np.array([[1,3,2,0]])
+
+print(f"a_matrix shape {a_matrix.shape}")
+print(f"a_matrix \n {a_matrix}")
+print(np.allclose(a_matrix.sum(axis=1), 1))
+
+print(f"b_matrix shape {b_matrix.shape}")
+print(f"b_matrix \n {b_matrix}")
+print(np.allclose(b_matrix.sum(axis=1), 1))
+
+
+print(f"observations shape {observations.shape}")
+print(f"observations {observations}")
+
+
+learned_a_matrix, learned_b_matrix, iterations = baum_welch(a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, initial_state_i=1, final_state_i=0, final_emission_k=0, iterations=0, max_iterations=10)
 
 print(f"learned a_matrix shape {learned_a_matrix.shape}")
-print(f"learned a_matrix {learned_a_matrix}")
+print(f"learned a_matrix \n {learned_a_matrix}")
 print(np.allclose(learned_a_matrix.sum(axis=1), 1))
-gamma_mat = gamma_matrix(alpha_matrix=alpha_matrix, beta_matrix=beta_matrix, a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=0)
-    # Transpose in order to do easy summations.
-    # We have gamma_mat_transpose[i,t,j]
-gamma_mat_transpose = np.transpose(gamma_mat, (1, 0, 2))
-learned_b_matrix = learn_b_matrix(g_matrix=gamma_mat, g_denominator_array=gamma_denominator_array(g_matrix_transpose=gamma_mat_transpose),number_of_emissions=b_matrix.shape[1],final_state_i=0, final_emission_k=0)
+
 print(f"learned b_matrix shape {learned_b_matrix.shape}")
-print(f"learned b_matrix  {learned_b_matrix}")
+print(f"learned b_matrix \n {learned_b_matrix}")
 print(np.allclose(learned_b_matrix.sum(axis=1), 1))
+
+print(f"Baum-Welch iterations {iterations}")
+
+
+
+
