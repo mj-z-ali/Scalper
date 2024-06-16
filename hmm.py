@@ -118,7 +118,8 @@ def forward_matrix(alpha_t_matrix: np.array, a_matrix: np.array,
 
 def forward_matrix_opt(alpha_t_matrix: np.array, a_matrix: np.array,
                 b_matrix: np.array, observations: np.array) -> np.array:
-    
+    # forward matrix optimized for reduced call stack:
+
     # Compute alpha of each state at each time_step.
     # Result is a (num_of_hidden_states x observations_size) alpha_matrix,
     # Each alpha_matrix[i, t] is the the probability of being at state i at time step t
@@ -178,6 +179,60 @@ def backward_matrix(beta_t_matrix: np.array, a_matrix: np.array, b_matrix: np.ar
                                             b_matrix=b_matrix, emission_k=observations[:, time_step]), 
                                         beta_t_matrix)), 
             a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=time_step-1)
+
+
+def backward_matrix_opt(beta_t_matrix: np.array, a_matrix: np.array, b_matrix: np.array, observations: np.array) -> np.array:
+    # Backward algorithm but optimized for reduced call-stack size.
+
+    # Compute beta of each state at each time_step.
+    # Result is a (num_of_hidden_states x observations_size) beta_matrix,
+    # Each beta_matrix[i, t] is the probability of ending the remaining sequence
+    # given that in state i at timestep t.
+
+
+    # The following branches reduces the call-stack by a factor of 3.
+    if observations.size <= 1:
+
+        return beta_t_matrix
+    
+    beta_t_matrix_1 = np.concatenate((beta_t_minus_one_array(
+                                            beta_t_array=beta_t_matrix[0], a_matrix=a_matrix, 
+                                            b_matrix=b_matrix, emission_k=observations[:, -1]), 
+                                        beta_t_matrix))
+    
+    if observations.size == 2:
+
+        return beta_t_matrix_1
+    
+
+    beta_t_matrix_2 = np.concatenate((beta_t_minus_one_array(
+                                            beta_t_array=beta_t_matrix_1[0], a_matrix=a_matrix, 
+                                            b_matrix=b_matrix, emission_k=observations[:, -2]), 
+                                        beta_t_matrix_1))
+    
+    if observations.size == 3:
+
+        return beta_t_matrix_2
+    
+
+    beta_t_matrix_3 = np.concatenate((beta_t_minus_one_array(
+                                            beta_t_array=beta_t_matrix_2[0], a_matrix=a_matrix, 
+                                            b_matrix=b_matrix, emission_k=observations[:, -3]), 
+                                        beta_t_matrix_2))
+    
+    if observations.size == 4:
+
+        return beta_t_matrix_3
+    
+    beta_t_matrix_4 = np.concatenate((beta_t_minus_one_array(
+                                            beta_t_array=beta_t_matrix_3[0], a_matrix=a_matrix, 
+                                            b_matrix=b_matrix, emission_k=observations[:, -4]), 
+                                        beta_t_matrix_3))
+
+    
+    return backward_matrix_opt(
+            beta_t_matrix=beta_t_matrix_4, 
+            a_matrix=a_matrix, b_matrix=b_matrix, observations=observations[:, :-4])
 
 def gamma_matrix(alpha_matrix: np.array, beta_matrix: np.array) -> np.array:
 
@@ -278,28 +333,12 @@ def learn_b_matrix(g_matrix: np.array, observations: np.array, number_of_emissio
 
 def baum_welch(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, observations: np.array, final_state_i: int) -> np.array:
     
-
-    fw_st = time.time()
-    alpha_matrix = forward_matrix(alpha_t_matrix=alpha_0_array(pi_array=pi_array, b_matrix=b_matrix, emission_k=observations[:,0]),
-                            a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=0)
-    fw_et = time.time()
-
-    fwo_st = time.time()
-    alpha_matrix_opt = forward_matrix_opt(alpha_t_matrix=alpha_0_array(pi_array=pi_array, b_matrix=b_matrix, emission_k=observations[:,0]),
+    alpha_matrix = forward_matrix_opt(alpha_t_matrix=alpha_0_array(pi_array=pi_array, b_matrix=b_matrix, emission_k=observations[:,0]),
                             a_matrix=a_matrix, b_matrix=b_matrix, observations=observations)
-    fwo_et = time.time()
 
-    print(f"non opt alpha mat \n {alpha_matrix}")
-    print(f"time in fw {fw_et-fw_st}")
+    beta_matrix = backward_matrix_opt(beta_t_matrix=beta_T_array(size=a_matrix.shape[0], state_i=final_state_i), 
+                            a_matrix=a_matrix, b_matrix=b_matrix, observations=observations)
 
-    print(f"opt alpha mat \n {alpha_matrix_opt}")
-    print(f"time in fw opt {fwo_et-fwo_st}")
-
-    print(f"eq? {alpha_matrix==alpha_matrix_opt}")
-
-    beta_matrix = backward_matrix(beta_t_matrix=beta_T_array(size=a_matrix.shape[0], state_i=final_state_i), 
-                            a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=observations.size-1)
-    
     # Result is a (num_of_timestep, num_of_hidden_states, num_of_hidden_states) matrix s.t.,
     # every gamma_mat[t,i,j] is the gamma of hidden states i and j at timestep t.
     g_matrix = gamma_matrix(alpha_matrix=alpha_matrix, beta_matrix=beta_matrix)
@@ -424,7 +463,7 @@ print(np.allclose(learned_b_matrix.sum(axis=1), 1))
 print(f"Baum-Welch iterations {iterations}")
 
 
-data = np.append(np.random.randint(1,5, (1, 999)),0).reshape(1,1000)
+data = np.append(np.random.randint(1,5, (1, 99)),0).reshape(1,100)
 
 
 s_time_hmm = time.time()
