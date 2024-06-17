@@ -269,6 +269,64 @@ def xi_matrix(xi_mat: np.array, alpha_matrix: np.array, beta_matrix: np.array, a
 
     return xi_matrix(xi_mat=xi_zero_to_t_matrix, alpha_matrix=alpha_matrix, beta_matrix=beta_matrix, a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=time_step+1)
 
+def xi_matrix_opt(xi_mat: np.array, alpha_matrix: np.array, beta_matrix: np.array, a_matrix: np.array, b_matrix: np.array, observations: np.array) -> np.array:
+
+    # Result is a (observations_size - 1, num_of_hidden_states, num_of_hidden_states) matrix.
+    # Each Xi[t,i,j] is the probability of being in state i and j at times t and t+1 respectively
+    # given the total observed sequence Y and parameters theta. Denominators of gamma[i,t] and xi[t,i,j]
+    # are the same, that is, the probability of making observation Y given the model parameters theta.
+    if observations.size <= 1:
+        return xi_mat / np.sum(xi_mat, axis=(1,2)).reshape(xi_mat.shape[0], 1, 1)
+    
+    # Xi[i,j] is the xi value of state  i to j for the current timestep.
+    xi_t_layer_1 = xi_t_array(alpha_t_array=np.array([alpha_matrix[0]]), beta_t_plus_one_array=np.array([beta_matrix[1]]), a_matrix=a_matrix, b_matrix=b_matrix, emission_k=observations[:, 1])
+
+
+    xi_zero_to_t_matrix_1 = np.concatenate((
+        xi_mat,
+        np.array([xi_t_layer_1]),
+    )) 
+
+    if observations.size == 2:
+
+        return xi_zero_to_t_matrix_1 / np.sum(xi_zero_to_t_matrix_1, axis=(1,2)).reshape(xi_zero_to_t_matrix_1.shape[0], 1, 1)
+    
+    xi_t_layer_2 = xi_t_array(alpha_t_array=np.array([alpha_matrix[1]]), beta_t_plus_one_array=np.array([beta_matrix[2]]), a_matrix=a_matrix, b_matrix=b_matrix, emission_k=observations[:, 2])
+
+
+    xi_zero_to_t_matrix_2 = np.concatenate((
+        xi_zero_to_t_matrix_1,
+        np.array([xi_t_layer_2]),
+    )) 
+
+    if observations.size == 3:
+
+        return xi_zero_to_t_matrix_2 / np.sum(xi_zero_to_t_matrix_2, axis=(1,2)).reshape(xi_zero_to_t_matrix_2.shape[0], 1, 1)
+
+
+    xi_t_layer_3 = xi_t_array(alpha_t_array=np.array([alpha_matrix[2]]), beta_t_plus_one_array=np.array([beta_matrix[3]]), a_matrix=a_matrix, b_matrix=b_matrix, emission_k=observations[:, 3])
+
+
+    xi_zero_to_t_matrix_3 = np.concatenate((
+        xi_zero_to_t_matrix_2,
+        np.array([xi_t_layer_3]),
+    ))
+
+    if observations.size == 4:
+
+        return xi_zero_to_t_matrix_3 / np.sum(xi_zero_to_t_matrix_3, axis=(1,2)).reshape(xi_zero_to_t_matrix_3.shape[0], 1, 1)
+
+    xi_t_layer_4 = xi_t_array(alpha_t_array=np.array([alpha_matrix[3]]), beta_t_plus_one_array=np.array([beta_matrix[4]]), a_matrix=a_matrix, b_matrix=b_matrix, emission_k=observations[:, 4])
+
+
+    xi_zero_to_t_matrix_4 = np.concatenate((
+        xi_zero_to_t_matrix_3,
+        np.array([xi_t_layer_4]),
+    ))
+
+    return xi_matrix_opt(xi_mat=xi_zero_to_t_matrix_4, alpha_matrix=alpha_matrix[4:], beta_matrix=beta_matrix[4:], a_matrix=a_matrix, b_matrix=b_matrix, observations=observations[:, 4:])
+
+
 def learn_pi_array(g_matrix: np.array) -> np.array:
 
     return g_matrix[0].reshape(1, g_matrix.shape[1])
@@ -344,8 +402,9 @@ def baum_welch(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, obser
     g_matrix = gamma_matrix(alpha_matrix=alpha_matrix, beta_matrix=beta_matrix)
 
     init_xi_mat = np.empty((0, a_matrix.shape[0], a_matrix.shape[1]))
-    xi_mat = xi_matrix(xi_mat=init_xi_mat, alpha_matrix=alpha_matrix, beta_matrix=beta_matrix, a_matrix=a_matrix, b_matrix=b_matrix, observations=observations, time_step=0)
-
+    
+    xi_mat = xi_matrix_opt(xi_mat=init_xi_mat, alpha_matrix=alpha_matrix, beta_matrix=beta_matrix, a_matrix=a_matrix, b_matrix=b_matrix, observations=observations)
+    
     learned_pi_array = learn_pi_array(g_matrix=g_matrix)
 
     learned_a_matrix = learn_a_matrix(xi_mat=xi_mat, g_matrix=g_matrix, final_state_i=final_state_i)
@@ -429,7 +488,7 @@ def train(multiple_observations: np.array, number_of_hidden_states: int, number_
 
     return train_until_convergence(pi_array=pi_array, a_matrix=a_matrix, b_matrix=b_matrix, multiple_observations=multiple_observations, final_state_i=final_state_i, thresh=thresh, iteration=0, max_iterations=max_iterations)
 
-
+'''
 a_matrix = np.array([[1,0,0,0], [0.2,0.3,0.1,0.4], [0.2,0.5,0.2,0.1], [0.7,0.1,0.1,0.1]])
 b_matrix = np.array([[1,0,0,0,0], [0,0.3,0.4,0.1,0.2], [0,0.1,0.1,0.7,0.1], [0,0.5,0.2,0.1,0.2]])
 multiple_observations  = np.array([[4,1,3,2,2,3,4,1,3,2,3,2,3,2,0]])
@@ -461,7 +520,7 @@ print(f"learned b_matrix \n {learned_b_matrix}")
 print(np.allclose(learned_b_matrix.sum(axis=1), 1))
 
 print(f"Baum-Welch iterations {iterations}")
-
+'''
 
 data = np.append(np.random.randint(1,5, (1, 99)),0).reshape(1,100)
 
