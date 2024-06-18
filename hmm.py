@@ -1,8 +1,6 @@
 import numpy as np
 import time
 
-
-
 def initial_pi_array(size: int, state_i: int) -> np.array:
     # Hidden state at index state_i will receive 
     # an initial state probability of 1 at time step 0. All other states
@@ -394,7 +392,7 @@ def learn_b_matrix(g_occurence_matrix: np.array, g_matrix: np.array) -> np.array
     return b_matrix_numerator.T / b_matrix_denominator
 
 
-def baum_welch(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, multiple_observations: np.array, final_state_i: int) -> np.array:
+def baum_welch(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, multiple_observations: np.array, final_state_i: int) -> tuple[np.array, np.array, np.array]:
     
     xi_matrix_all, gamma_matrix_all, gamma_occurence_matrix_all = baum_welch_helper(xi_matrix_sum=0, gamma_matrix_sum=0, gamma_occurence_matrix_sum=0, pi_array=pi_array, a_matrix=a_matrix, b_matrix=b_matrix, multiple_observations=multiple_observations, final_state_i=final_state_i)
     
@@ -408,7 +406,7 @@ def baum_welch(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, multi
 
     return learned_pi_array, learned_a_matrix, learned_b_matrix
 
-def baum_welch_helper(xi_matrix_sum: np.array, gamma_matrix_sum: np.array, gamma_occurence_matrix_sum: np.array, pi_array: np.array, a_matrix: np.array, b_matrix: np.array, multiple_observations: np.array, final_state_i: int) -> np.array:
+def baum_welch_helper(xi_matrix_sum: np.array, gamma_matrix_sum: np.array, gamma_occurence_matrix_sum: np.array, pi_array: np.array, a_matrix: np.array, b_matrix: np.array, multiple_observations: np.array, final_state_i: int) -> tuple[np.array, np.array, np.array]:
     
     if len(multiple_observations) == 0:
         return xi_matrix_sum, gamma_matrix_sum, gamma_occurence_matrix_sum 
@@ -438,7 +436,7 @@ def baum_welch_helper(xi_matrix_sum: np.array, gamma_matrix_sum: np.array, gamma
     return baum_welch_helper(xi_matrix_sum=new_xi_matrix_sum, gamma_matrix_sum=new_gamma_matrix_sum, gamma_occurence_matrix_sum=new_gamma_occurence_matrix_sum, pi_array=pi_array, a_matrix=a_matrix, b_matrix=b_matrix, multiple_observations=multiple_observations[1:], final_state_i=final_state_i)
     
 
-def inference(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, partial_observations: np.array, emission_k_to_predict: int) -> float:
+def inference(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, partial_observations: np.array) -> np.array:
     
     init_alpha_array = alpha_0_array(pi_array=pi_array, b_matrix=b_matrix, emission_k=partial_observations[:, 0])
     
@@ -446,13 +444,9 @@ def inference(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, partia
     
     emission_probs = (alpha[-1] @ a_matrix) * b_matrix.T
     
-    print(f"emission probs {emission_probs}")
-    print(f"emission prob dist  {np.sum(emission_probs, axis=1)}")
-    print(f"emission probs sum {np.sum(emission_probs)}")
-    
     return np.sum(emission_probs, axis=1) / np.sum(emission_probs)
 
-def train_until_convergence(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, multiple_observations: np.array, final_state_i: int, thresh: float, iteration: int, max_iterations: int) -> np.array:
+def train_until_convergence(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, multiple_observations: np.array, final_state_i: int, thresh: float, iteration: int, max_iterations: int) -> tuple[np.array, np.array, np.array, int]:
     # Learned pi, learned a,  and learned b are the sum of pi, a, and b matrices of all
     # observations - that resulted from their respective Baum-Welch step - divided by the 
     # number of total observations.
@@ -465,7 +459,7 @@ def train_until_convergence(pi_array: np.array, a_matrix: np.array, b_matrix: np
     
     return train_until_convergence(pi_array=learned_pi_array, a_matrix=learned_a_matrix, b_matrix=learned_b_matrix, multiple_observations=multiple_observations, final_state_i=final_state_i, thresh=thresh, iteration=iteration+1, max_iterations=max_iterations)
 
-def train(multiple_observations: np.array, number_of_hidden_states: int, number_of_emissions: int, final_state_i: int, final_emission_k: int, thresh: float, max_iterations: int) -> np.array:
+def train(multiple_observations: np.array, number_of_hidden_states: int, number_of_emissions: int, final_state_i: int, final_emission_k: int, thresh: float, max_iterations: int) -> tuple[np.array, np.array, np.array, int]:
 
     # Initial pi, a, and b matrices. Probabilities for final state and final emission are accounted for.
     pi_array = initial_random_pi_array(size=number_of_hidden_states)
@@ -533,6 +527,6 @@ print(f"time elapsed {e_time_hmm - s_time_hmm}")
 print("="*10)
 
 partial_observations = np.array([[3,2,1,4,2,3]])
-infer = inference(pi_array=pi, a_matrix=a, b_matrix=b, partial_observations=partial_observations, emission_k_to_predict=2)
+infer = inference(pi_array=pi, a_matrix=a, b_matrix=b, partial_observations=partial_observations)
 
 print(f"inference {infer}")
