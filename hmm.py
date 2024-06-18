@@ -413,6 +413,17 @@ def baum_welch(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, obser
 
     return learned_pi_array, learned_a_matrix, learned_b_matrix
 
+def inference(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, partial_observations: np.array, emission_k_to_predict: int) -> float:
+    
+    init_alpha_array = alpha_0_array(pi_array=pi_array, b_matrix=b_matrix, emission_k=partial_observations[:, 0])
+    observations_to_predict = np.append(partial_observations, emission_k_to_predict).reshape(1, partial_observations.shape[1]+1)
+    alpha = forward_matrix_opt(alpha_t_matrix=init_alpha_array, a_matrix=a_matrix, b_matrix=b_matrix, observations=partial_observations)
+    emission_probs = (alpha[-1] @ a_matrix) * b_matrix.T
+    print(f"emission probs {emission_probs}")
+    print(f"emission prob dist  {np.sum(emission_probs, axis=1)}")
+    print(f"emission probs sum {np.sum(emission_probs)}")
+    return np.sum(emission_probs, axis=1) / np.sum(emission_probs)
+
 def train_until_convergence(pi_array: np.array, a_matrix: np.array, b_matrix: np.array, multiple_observations: np.array, final_state_i: int, thresh: float, iteration: int, max_iterations: int) -> np.array:
     # Learned pi, learned a,  and learned b are the sum of pi, a, and b matrices of all
     # observations - that resulted from their respective Baum-Welch step - divided by the 
@@ -522,7 +533,9 @@ print(np.allclose(learned_b_matrix.sum(axis=1), 1))
 print(f"Baum-Welch iterations {iterations}")
 '''
 
-data = np.append(np.random.randint(1,5, (1, 99)),0).reshape(1,100)
+# data = np.append(np.random.randint(1,5, (1, 99)),0).reshape(1,100)
+
+data  = np.array([[3,2,1,4,2,3,2,0]]*500)
 
 
 s_time_hmm = time.time()
@@ -542,3 +555,7 @@ print(f"iterations {i}")
 print(f"time elapsed {e_time_hmm - s_time_hmm}")
 print("="*10)
 
+partial_observations = np.array([[3,2,1,4,2,3]])
+infer = inference(pi_array=pi, a_matrix=a, b_matrix=b, partial_observations=partial_observations, emission_k_to_predict=2)
+
+print(f"inference {infer}")
