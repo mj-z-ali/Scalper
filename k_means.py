@@ -43,13 +43,13 @@ def single_point_in_densest_area(points_a: np.array, points_b: np.array, max_blo
     # Results in the point nearest to all other points.
 
     distance_sums = single_point_in_densest_area_i(points_a=points_a, points_b=points_b, distance_sums=np.array([]), i=0, max_block_size=max_block_size)
-
+    
     return points_a[np.argmin(distance_sums)]
 
 def single_point_in_densest_area_i(points_a: np.array, points_b: np.array, distance_sums: np.array, i: int, max_block_size: int) -> np.array:
 
     if i >= points_a.shape[0]:
-        return distance_sums.reshape(1, points_a.shape[0])
+        return distance_sums
     
     block_size = min(points_a.shape[0] - i, max_block_size)
 
@@ -84,7 +84,7 @@ def distances_to_nearest_centroid(points: np.array, centroids: np.array, max_blo
 def distances_to_nearest_centroid_i(points: np.array, centroids: np.array, minimum_distances: np.array, i: int, max_block_size: int) -> np.array:
 
     if i >= points.shape[0]:
-        return minimum_distances.reshape(1, points.shape[0])
+        return minimum_distances
     
     block_size = min(points.shape[0] - i, max_block_size)
 
@@ -122,7 +122,7 @@ def means_of_distances(points_a: np.array, points_b: np.array, max_block_size: i
 def means_of_distances_i(points_a: np.array, points_b: np.array, means: np.array, i: int, max_block_size: int) -> np.array:
 
     if i >= points_a.shape[0]:
-        return means.reshape(1, points_a.shape[0])
+        return means
 
     block_size = min(points_a.shape[0] - i, max_block_size)
 
@@ -159,7 +159,7 @@ def minimum_distance_indices(points_a: np.array, points_b: np.array, max_block_s
 def minimum_distance_indices_i(points_a: np.array, points_b: np.array, minimum_distances_indices: np.array, i: int, max_block_size: int) -> np.array:
     
     if i >= points_a.shape[0]:
-        return minimum_distances_indices.reshape(1, points_a.shape[0])
+        return minimum_distances_indices
     
     block_size = min(points_a.shape[0] - i,  max_block_size)
     
@@ -215,23 +215,24 @@ def initialize_centroids(data: np.array, number_of_centroids: int) -> np.array:
 
 
 def initialize_centroids_helper(data: np.array, centroids: np.array, k: int, number_of_centroids: int) -> np.array:
-
+    plot(data=data, centroids=centroids)
     if k == number_of_centroids:
         return  centroids
     
-    # (n-points,) matrix where each value is the shortest distance to a centroid.
+    # (n-points, ) matrix where each value is the shortest distance to a centroid.
     minimum_distances = distances_to_nearest_centroid(points=data, centroids=centroids, max_block_size=4000)
 
     # Sort distances in descending order.
     sorted_minimum_distances = np.argsort(minimum_distances)[::-1]
 
     # Select some percentile of the furthest points.
-    top_percentile_indices = sorted_minimum_distances[:max(int((0.01/k) * len(sorted_minimum_distances)), 1)]
+    # Results in a (top_percentile, ) array.
+    top_percentile_indices = sorted_minimum_distances[:max(int((0.1/k) * sorted_minimum_distances.shape[0]), 1)]
 
     # From the refined list of points, find the one nearest to all points.
-    next_centroid = single_point_in_densest_area(points_a=data[top_percentile_indices], points_b=data, max_block_size=4000)
+    next_centroid = np.array([single_point_in_densest_area(points_a=data[top_percentile_indices], points_b=data, max_block_size=4000)])
 
-    new_centroids = np.append(centroids, next_centroid).reshape(1, centroids.shape[1]+1)
+    new_centroids = np.append(centroids, next_centroid, axis=0)
 
     return initialize_centroids_helper(data=data, centroids=new_centroids, k=k+1, number_of_centroids=number_of_centroids)
 
@@ -240,9 +241,9 @@ def move_centroids(data: np.array, labels: np.array, new_centroids: np.array, k:
     # Move centroids based on mean of corresponding cluster.
 
     if k == number_of_centroids:
-        return new_centroids.reshape(1, number_of_centroids)
-    
-    append_centroid = np.append(new_centroids, data[labels == k].mean(axis=0))
+        return new_centroids
+
+    append_centroid = np.concatenate(( new_centroids, np.array([data[labels == k].mean(axis=0)]) ))
 
     return move_centroids(data=data, labels=labels, new_centroids=append_centroid, k=k+1, number_of_centroids=number_of_centroids)
 
@@ -262,13 +263,15 @@ def train_helper(data: np.array, centroids: np.array, labels: np.array, iteratio
     # Train data by moving centroids until convergence or max_iterations is reached:
 
     if iteration == max_iterations:
+        plot_clusters(data=data, centroids=centroids, labels=labels, silhouette_score=1000)
         return centroids, labels
     
-    new_centroids = move_centroids(data=data, labels=labels, new_centroids=np.array([]), k=0, number_of_centroids=centroids.shape[0])
+    new_centroids = move_centroids(data=data, labels=labels, new_centroids=np.empty((0, data.shape[1])), k=0, number_of_centroids=centroids.shape[0])
     
     new_labels = minimum_distance_indices(points_a=data, points_b=new_centroids, max_block_size=4000)
 
     if np.all(centroids == new_centroids): 
+        plot_clusters(data=data, centroids=new_centroids, labels=new_labels, silhouette_score=1000)
         return new_centroids, new_labels
 
     return train_helper(data=data, centroids=new_centroids, labels=new_labels, iteration=iteration+1, max_iterations=max_iterations)
