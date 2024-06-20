@@ -1,62 +1,122 @@
 import pandas as pd
 import numpy as np
-import k_means as km
+from functools import reduce
+# import k_means as km
 
 import time
 
 
-def bars(trades_df: pd.DataFrame, interval: str = '5T') -> list[pd.DataFrame]:
-
-    return [bar for _, bar in trades_df.resample(interval) if not bar.dropna().empty]
-
-
-def ohlctb(bars: list[pd.DataFrame]) -> pd.DataFrame:
-
-    ohlc = [{'timestamp': bar_df.index[0].floor('S'),
-                'open': bar_df['price'].iloc[0], 
-                'high': bar_df['price'].max(), 
-                'low': bar_df['price'].min(), 
-                'close': bar_df['price'].iloc[-1]} for bar_df in bars]
+def trade_intervals_list(trades_df: pd.DataFrame, interval: str) -> list[pd.DataFrame]:
+    resampled = trades_df.resample(interval)
+    trade_intervals_generator = map(lambda item: item[1], resampled)
+    non_empty_trade_intervals = filter(lambda bar: not bar.dropna().empty, trade_intervals_generator)
+    return list(non_empty_trade_intervals)
     
-    ohlc_df = pd.DataFrame(ohlc).set_index('timestamp')
 
-    red_bars = ohlc_df['close'] <= ohlc_df['open']
-    ohlc_df['top'] = np.where(red_bars, ohlc_df['open'], ohlc_df['close'])
-    ohlc_df['bottom'] = np.where(red_bars, ohlc_df['close'], ohlc_df['open'])
-    ohlc_df['red'] = red_bars
-    
-    return ohlc_df
+
+def bars(trade_intervals: list[pd.DataFrame]) -> pd.DataFrame:
+
+    red_bar = lambda trade_interval : trade_interval['price'].iloc[-1] <= trade_interval['price'].iloc[0]
+    top = lambda trade_interval : trade_interval['price'].iloc[0] if red_bar(trade_interval) else trade_interval['price'].iloc[-1]
+    bottom = lambda trade_interval : trade_interval['price'].iloc[-1] if red_bar(trade_interval) else trade_interval['price'].iloc[0] 
+
+    bar_generator = map(lambda trade_interval: {
+                'timestamp': trade_interval.index[0].floor('S'),
+                'open': trade_interval['price'].iloc[0], 
+                'high': trade_interval['price'].max(), 
+                'low': trade_interval['price'].min(), 
+                'close': trade_interval['price'].iloc[-1],
+                'top':top(trade_interval),
+                'bottom': bottom(trade_interval),
+                'red': red_bar(trade_interval)}, trade_intervals)
+
+    return pd.DataFrame(bar_generator).set_index('timestamp')
+
+
+trades_df =  pd.read_csv('small_trades.csv', parse_dates=['timestamp'], index_col='timestamp')
+trade_intervals = trade_intervals_list(trades_df=trades_df, interval='5T')
+bar_df__ = bars(trade_intervals=trade_intervals)
+print(bar_df__)
+
 
 def insert_top_bottom_columns(bar_df: pd.DataFrame) -> pd.DataFrame:
 
-    bar_df_copy = bar_df.copy(deep=True)
+    red_lambda = lambda bar_row : bar_row['close'] <= bar_row['open']
+    top_lambda = lambda bar_row : bar_row['open'] if red_lambda(bar_row) else bar_row['close']
+    bottom_lambda = lambda bar_row : bar_row['close'] if red_lambda(bar_row) else bar_row['open'] 
 
-    red_bars = bar_df_copy['close'] <= bar_df_copy['open']
-    
-    bar_df_copy['top'] = np.where(red_bars, bar_df_copy['open'], bar_df_copy['close'])
+    return bar_df.assign(top=bar_df.apply(top_lambda, axis=1), bottom=bar_df.apply(bottom_lambda,axis=1), 
+                red=bar_df.apply(red_lambda, axis=1))
 
-    bar_df_copy['bottom'] = np.where(red_bars, bar_df_copy['close'], bar_df_copy['open'])
+bar_df = pd.read_csv('18_12_2023_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
+bar_df_ = insert_top_bottom_columns(bar_df=bar_df)
+print(bar_df_)
 
-    bar_df_copy['red'] = red_bars
+def diff_matrix(matrix: np.array) -> np.array:
 
-    return  bar_df_copy
+    n = len(matrix)
+
+    matrix_reshaped = matrix.reshape((n, 1))
+
+    diff_matrix = 100*(matrix_reshaped - matrix_reshaped.T) / matrix_reshaped
+
+    return diff_matrix
+
+def top_differences_day(day_bars_df: pd.DataFrame) -> np.array:
+
+    n = len(day_bars_df['top'].values)
+
+    upper_row, upper_col = np.triu_indices(n=n, k=1)
+
+    return diff_matrix(matrix=day_bars_df['top'].values)[upper_row, upper_col]
+
 
 def top_differences(bar_df: pd.DataFrame) -> np.array:
 
-    top_diffs = np.array([])
-    
-    for _, current_bar_df in bar_df.resample('1D'):
+    day_bar_generator = map(lambda day_bar_df: day_bar_df[1], bar_df.resample('1D'))
 
-        if not current_bar_df.dropna().empty:
+    non_empty_day_bars = filter(lambda day_bar_df: not day_bar_df.dropna().empty, day_bar_generator)
 
-            n = len(current_bar_df['top'].values)
+    top_diffs_list = map(top_differences_day, non_empty_day_bars)
 
-            upper_row, upper_columns = np.triu_indices(n=n, k=1)
+    return reduce(lambda acc, x: np.append(acc, x), top_diffs_list, np.array([]))
 
-            top_diffs = np.append(top_diffs, diff_matrix(matrix=current_bar_df['top'].values)[upper_row, upper_columns])
 
-    return top_diffs
+print(top_differences(bar_df=bar_df_).shape)
+print(top_differences(bar_df=bar_df__).shape)
 
+def top_slopes_day(day_bars_df: pd.DataFrame) -> np.array:
+
+    n = len(day_bars_df['top'].values)
+
+    # Upper triangle indices excluding diagonal since it and the lower part 
+    # is relationship of bar to itself and past bars.
+    upper_row, upper_col = np.triu_indices(n=n, k=1)
+
+    # Percentage differences of bar top to all others.
+    diff_mat = diff_matrix(matrix=day_bars_df['top'].values)[upper_row, upper_col]
+
+    indices = np.arange(n).reshape(1,n)
+
+    # Line lengths in units of bars. Bar top to all other bar top distances.
+    lengths = (indices - indices.T)[upper_row, upper_col]
+
+    slopes = diff_mat / lengths
+
+    return np.column_stack((slopes, lengths))
+
+def top_slopes(bar_df: pd.DataFrame) -> np.array:
+
+    day_bar_generator = map(lambda day_bar_df: day_bar_df[1], bar_df.resample('1D'))
+
+    non_empty_day_bars = filter(lambda day_bar_df: not day_bar_df.dropna().empty, day_bar_generator)
+
+    top_slopes_list = map(top_slopes_day, non_empty_day_bars)
+
+    return reduce(lambda acc, x: np.concatenate((acc, x)), top_slopes_list, np.empty((0, 2)))
+print(top_slopes(bar_df=bar_df_).shape)
+print(top_slopes(bar_df=bar_df_))
+exit()
 def resistance_levels(bar_df: pd.DataFrame, centroids: np.array) -> tuple[np.array, np.array]:
 
     n = len(bar_df['top'].values)
@@ -97,15 +157,7 @@ def resistance_levels(bar_df: pd.DataFrame, centroids: np.array) -> tuple[np.arr
 
 
 
-def diff_matrix(matrix: np.array) -> np.array:
 
-    n = len(matrix)
-
-    matrix_reshaped = matrix.reshape((n, 1))
-
-    diff_matrix = 100*(matrix_reshaped - matrix_reshaped.T) / matrix_reshaped
-
-    return diff_matrix
 
 def area_matrix(matrix: np.array) -> np.array:
 
@@ -151,7 +203,7 @@ def area_matrix(matrix: np.array) -> np.array:
 #                         if not five_minute_chart_df.dropna().empty]).flatten())
 # end_time_for_top_differences = time.time()
 
-medium_five_minute_df = pd.read_csv('18_12_2023_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
+medium_five_minute_df = pd.read_csv('01_04_2024_to_01_05_2024_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
 
 medium_five_minute_ohlctb_df = insert_top_bottom_columns(bar_df=medium_five_minute_df)
 
@@ -161,8 +213,8 @@ zeroes = np.zeros(top_diffs.shape[0])
 
 top_diffs_2d = np.column_stack((top_diffs, zeroes))
 
-centroids, labels, k, score = km.k_means_fit(data=top_diffs_2d, start_k=100, max_k=101)
-# print(f"centroids, labels, k, score {centroids, labels, k, score}")
+centroids, labels, k, score = km.k_means_fit(data=top_diffs_2d, start_k=500, max_k=501)
+print(f"centroids, labels, k, score {centroids, labels, k, score}")
 
 # areas = np.array([area_matrix(matrix=five_minute_chart_df['top'].values)
 #                         for _, five_minute_chart_df in ohlctb_df.resample('1D') 
