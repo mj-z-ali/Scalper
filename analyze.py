@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from functools import reduce
-# import k_means as km
+import k_means as km
 
 import time
 
@@ -33,11 +33,6 @@ def bars(trade_intervals: list[pd.DataFrame]) -> pd.DataFrame:
     return pd.DataFrame(bar_generator).set_index('timestamp')
 
 
-trades_df =  pd.read_csv('small_trades.csv', parse_dates=['timestamp'], index_col='timestamp')
-trade_intervals = trade_intervals_list(trades_df=trades_df, interval='5T')
-bar_df__ = bars(trade_intervals=trade_intervals)
-print(bar_df__)
-
 
 def insert_top_bottom_columns(bar_df: pd.DataFrame) -> pd.DataFrame:
 
@@ -48,9 +43,8 @@ def insert_top_bottom_columns(bar_df: pd.DataFrame) -> pd.DataFrame:
     return bar_df.assign(top=bar_df.apply(top_lambda, axis=1), bottom=bar_df.apply(bottom_lambda,axis=1), 
                 red=bar_df.apply(red_lambda, axis=1))
 
-bar_df = pd.read_csv('18_12_2023_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
+bar_df = pd.read_csv('01_04_2024_to_01_05_2024_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
 bar_df_ = insert_top_bottom_columns(bar_df=bar_df)
-print(bar_df_)
 
 def diff_matrix(matrix: np.array) -> np.array:
 
@@ -82,9 +76,6 @@ def top_differences(bar_df: pd.DataFrame) -> np.array:
     return reduce(lambda acc, x: np.append(acc, x), top_diffs_list, np.array([]))
 
 
-print(top_differences(bar_df=bar_df_).shape)
-print(top_differences(bar_df=bar_df__).shape)
-
 def top_slopes_day(day_bars_df: pd.DataFrame) -> np.array:
 
     n = len(day_bars_df['top'].values)
@@ -114,8 +105,50 @@ def top_slopes(bar_df: pd.DataFrame) -> np.array:
     top_slopes_list = map(top_slopes_day, non_empty_day_bars)
 
     return reduce(lambda acc, x: np.concatenate((acc, x)), top_slopes_list, np.empty((0, 2)))
-print(top_slopes(bar_df=bar_df_).shape)
-print(top_slopes(bar_df=bar_df_))
+
+def find_last_true_index(bool_matrix: np.array) -> np.array:
+    return bool_matrix.shape[1] - np.argmax(bool_matrix[:,::-1], axis=1) - 1
+
+def brick_wall_mask(day_bars_df: pd.DataFrame) -> np.array:
+
+    # Percentage differences of bar top to all others.
+    diff_mat = diff_matrix(matrix=day_bars_df['top'].values)
+
+    # Bar tops differences that are greater than each current bar top.
+    ltz_bool = diff_mat < 0
+
+    # Upper triangle not including diagonal. 
+    # In particular, all bar top diffs after the current.
+    triu_bool = np.triu(np.ones(diff_mat.shape, dtype=bool), k=1)
+
+    # First breakout occurence after each current bar.
+    frst_brkout_indices = np.argmax(ltz_bool&triu_bool, axis=1)
+    
+    col_indices = np.arange(diff_mat.shape[1])
+
+    # Set all values including and after first breakout to True in order to change to inf later.
+    brkout_brick_wall_bool = (col_indices >= frst_brkout_indices[:, None]) & (frst_brkout_indices[:, None] != 0)
+
+    # Lower triangle excluding diagonal.
+    tril_bool = np.tril(np.ones(diff_mat.shape, dtype=bool), k=-1)
+
+    # First bar tops greater than each current that occured before.
+    pre_brkout_indices = find_last_true_index(bool_matrix=ltz_bool&tril_bool)
+    
+    # Set all  values including and before first pre-breakout to True in order to change to inf later.
+    pre_brkout_brick_wall_bool = (col_indices <= pre_brkout_indices[:, None]) & (pre_brkout_indices[:, None] != 0)
+
+    brick_wall_bool = pre_brkout_brick_wall_bool | brkout_brick_wall_bool
+
+    # Results to new matrix where any bars top diffs preceding first pre-breakout or 
+    # succeeding first breakout are brick-walled (set to infinity)
+    return np.where(brick_wall_bool, np.inf, diff_mat)
+
+data = top_slopes(bar_df=bar_df_)
+
+centroids, labels = km.train(data=data, number_of_centroids=10, iteration=0, max_iterations=100)
+
+
 exit()
 def resistance_levels(bar_df: pd.DataFrame, centroids: np.array) -> tuple[np.array, np.array]:
 
