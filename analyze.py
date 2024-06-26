@@ -109,7 +109,7 @@ def top_slopes(bar_df: pd.DataFrame) -> np.array:
 def find_last_true_index(bool_matrix: np.array) -> np.array:
     return bool_matrix.shape[1] - np.argmax(bool_matrix[:,::-1], axis=1) - 1
 
-def resistance_zone_mask(day_bars_df: pd.DataFrame) -> np.array:
+def resistance_zone(day_bars_df: pd.DataFrame) -> np.array:
 
     # Percentage differences of bar top to all others.
     diff_mat = diff_matrix(matrix=day_bars_df['top'].values)
@@ -138,15 +138,48 @@ def resistance_zone_mask(day_bars_df: pd.DataFrame) -> np.array:
     # Set all  values including and before first pre-breakout to True in order to change to inf later.
     pre_brkout_mask = (col_indices <= pre_brkout_indices[:, None]) & (pre_brkout_indices[:, None] != diff_mat.shape[1]-1)
 
-    resistance_zone_mask = pre_brkout_mask | brkout_mask
+    # Mask where only diagonal is set to true. This represents the current 
+    # bar top in relation to itself. We exclude this from the resistance zone.
+    diagonal_mask = np.eye(diff_mat.shape[0], dtype=bool)
 
-    # Results to new matrix where any bar top diffs preceding first pre-breakout or 
-    # succeeding first breakout are set to infinity (resistance zone mask).
+    # If bar was red.
+    red_bool = day_bars_df['red'].values
+
+    # If  previous bar was red.
+    prev_red_bool = np.concatenate(([False], red_bool[:-1]))
+
+    # If next bar was red.
+    nxt_red_bool = np.concatenate((red_bool[1:], [False]))
+
+    # If there was a green-red pattern starting from the previous bar.
+    prev_green_curr_red_bool = ~prev_red_bool & red_bool
+
+    # If there was a a green-red pattern starting at the current bar.
+    curr_green_nxt_red_bool = ~red_bool & nxt_red_bool
+
+    # If green-red starting at previous, set to the previous bar index.
+    prev_green_curr_red_indices =  np.where(prev_green_curr_red_bool, np.arange(len(prev_green_curr_red_bool)) - 1, -1)
+
+    # Set that previous bar to True in order to ignore it in the future.
+    prev_green_curr_red_mask = (col_indices == prev_green_curr_red_indices[:, None])
+
+    # If green-red starting at current, set to next bar index.
+    curr_green_nxt_red_indices = np.where(curr_green_nxt_red_bool, np.arange(len(curr_green_nxt_red_bool)) + 1, -1)
+
+    # Set that next bar to True in order to ignore it in the future.
+    curr_green_nxt_red_mask = (col_indices == curr_green_nxt_red_indices[:, None])
+
+    # Combine all masks to retain the resistance zone mask.
+    resistance_zone_mask = pre_brkout_mask | prev_green_curr_red_mask | diagonal_mask | \
+                        curr_green_nxt_red_mask | brkout_mask 
+
+    # Results in the resistance zone left unchanged (set to diff_mat). 
+    # Any values beyond this zone are set to inf.
     return np.where(resistance_zone_mask, np.inf, diff_mat)
 
 
 print(bar_df_)
-resistance_zone_mat = resistance_zone_mask(day_bars_df=bar_df_)
+resistance_zone_mat = resistance_zone(day_bars_df=bar_df_)
 print(resistance_zone_mat.shape)
 print(resistance_zone_mat)
 exit()
