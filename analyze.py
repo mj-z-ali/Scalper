@@ -109,12 +109,12 @@ def top_slopes(bar_df: pd.DataFrame) -> np.array:
 def find_last_true_index(bool_matrix: np.array) -> np.array:
     return bool_matrix.shape[1] - np.argmax(bool_matrix[:,::-1], axis=1) - 1
 
-def brick_wall_mask(day_bars_df: pd.DataFrame) -> np.array:
+def resistance_zone_mask(day_bars_df: pd.DataFrame) -> np.array:
 
     # Percentage differences of bar top to all others.
     diff_mat = diff_matrix(matrix=day_bars_df['top'].values)
 
-    # Bar tops differences that are greater than each current bar top.
+    # Bar tops differences that are greater than each current bar top diffs.
     ltz_bool = diff_mat < 0
 
     # Upper triangle not including diagonal. 
@@ -127,22 +127,22 @@ def brick_wall_mask(day_bars_df: pd.DataFrame) -> np.array:
     col_indices = np.arange(diff_mat.shape[1])
 
     # Set all values including and after first breakout to True in order to change to inf later.
-    brkout_brick_wall_bool = (col_indices >= frst_brkout_indices[:, None]) & (frst_brkout_indices[:, None] != 0)
+    brkout_mask = (col_indices >= frst_brkout_indices[:, None]) & (frst_brkout_indices[:, None] != 0)
 
     # Lower triangle excluding diagonal.
     tril_bool = np.tril(np.ones(diff_mat.shape, dtype=bool), k=-1)
 
-    # First bar tops greater than each current that occured before.
+    # First bar top diffs greater than each current that occured before.
     pre_brkout_indices = find_last_true_index(bool_matrix=ltz_bool&tril_bool)
     
     # Set all  values including and before first pre-breakout to True in order to change to inf later.
-    pre_brkout_brick_wall_bool = (col_indices <= pre_brkout_indices[:, None]) & (pre_brkout_indices[:, None] != 0)
+    pre_brkout_mask = (col_indices <= pre_brkout_indices[:, None]) & (pre_brkout_indices[:, None] != 0)
 
-    brick_wall_bool = pre_brkout_brick_wall_bool | brkout_brick_wall_bool
+    resistance_zone_mask = pre_brkout_mask | brkout_mask
 
-    # Results to new matrix where any bars top diffs preceding first pre-breakout or 
-    # succeeding first breakout are brick-walled (set to infinity)
-    return np.where(brick_wall_bool, np.inf, diff_mat)
+    # Results to new matrix where any bar top diffs preceding first pre-breakout or 
+    # succeeding first breakout are set to infinity (resistance zone mask).
+    return np.where(resistance_zone_mask, np.inf, diff_mat)
 
 data = top_slopes(bar_df=bar_df_)
 
