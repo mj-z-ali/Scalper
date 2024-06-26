@@ -43,7 +43,7 @@ def insert_top_bottom_columns(bar_df: pd.DataFrame) -> pd.DataFrame:
     return bar_df.assign(top=bar_df.apply(top_lambda, axis=1), bottom=bar_df.apply(bottom_lambda,axis=1), 
                 red=bar_df.apply(red_lambda, axis=1))
 
-bar_df = pd.read_csv('01_04_2024_to_01_05_2024_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
+bar_df = pd.read_csv('18_12_2023_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
 bar_df_ = insert_top_bottom_columns(bar_df=bar_df)
 
 def diff_matrix(matrix: np.array) -> np.array:
@@ -136,7 +136,7 @@ def resistance_zone_mask(day_bars_df: pd.DataFrame) -> np.array:
     pre_brkout_indices = find_last_true_index(bool_matrix=ltz_bool&tril_bool)
     
     # Set all  values including and before first pre-breakout to True in order to change to inf later.
-    pre_brkout_mask = (col_indices <= pre_brkout_indices[:, None]) & (pre_brkout_indices[:, None] != 0)
+    pre_brkout_mask = (col_indices <= pre_brkout_indices[:, None]) & (pre_brkout_indices[:, None] != diff_mat.shape[1]-1)
 
     resistance_zone_mask = pre_brkout_mask | brkout_mask
 
@@ -144,12 +144,19 @@ def resistance_zone_mask(day_bars_df: pd.DataFrame) -> np.array:
     # succeeding first breakout are set to infinity (resistance zone mask).
     return np.where(resistance_zone_mask, np.inf, diff_mat)
 
+
+print(bar_df_)
+resistance_zone_mat = resistance_zone_mask(day_bars_df=bar_df_)
+print(resistance_zone_mat.shape)
+print(resistance_zone_mat)
+exit()
+
 data = top_slopes(bar_df=bar_df_)
 
 centroids, labels = km.train(data=data, number_of_centroids=10, iteration=0, max_iterations=100)
 
 
-exit()
+
 def resistance_levels(bar_df: pd.DataFrame, centroids: np.array) -> tuple[np.array, np.array]:
 
     n = len(bar_df['top'].values)
