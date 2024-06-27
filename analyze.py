@@ -172,16 +172,62 @@ def resistance_zone(day_bars_df: pd.DataFrame) -> np.array:
     # Combine all masks to retain the resistance zone mask.
     resistance_zone_mask = pre_brkout_mask | prev_green_curr_red_mask | diagonal_mask | \
                         curr_green_nxt_red_mask | brkout_mask 
-
+    
     # Results in the resistance zone left unchanged (set to diff_mat). 
     # Any values beyond this zone are set to inf.
     return np.where(resistance_zone_mask, np.inf, diff_mat)
 
+'''
+(1) Get index of min for each row. That is the other bar that creates the
+resistance line. If argmin is 0 and inf in that location, then there is none.
 
+'''
+def resistance_end_points(day_bars_df: pd.DataFrame) -> np.array:
+
+    # Filter out bar top differences beyond the zone (set to inf).
+    resistance_zone_mat = resistance_zone(day_bars_df=day_bars_df)
+
+    # First point of resistance line is the row index.
+    point_1_indx_ = np.arange(resistance_zone_mat.shape[0])
+
+    # The bar top with the smallest difference to the current bar top is another point.
+    # If argmin is zero, it may be that inf was the minimum, meaning no qualifying points...
+    point_2_indx_ = np.argmin(resistance_zone_mat, axis=1)
+
+    # So, correct that case.
+    point_2_indx = np.where((point_2_indx_ == 0) & (resistance_zone_mat[:,0] == np.inf), -1, point_2_indx_)
+
+    point_1_indx = np.where(point_2_indx == -1, -1, point_1_indx_)
+
+    # Stack current point indx and other points indx and sort from  start to end.
+    end_point_indx = np.sort(np.column_stack((point_1_indx, point_2_indx)), axis=1)
+    
+    return end_point_indx
+
+'''
+
+(2) If argmin is greater than current row index, argmin is where the line ends.
+If argmin is less than the current row index, row index is where the line ends.
+The exact start time of our trade range we seek is the start time of the bar 
+that succeeds the end index.
+
+(3) Find the first bar after end index that is green and has a top greater than current. 
+The bar after it is our end time of the range we seek.
+
+(4) Get the trade df of for the  current date. Split the trades into bar intervals only
+if the time is greater than or equal start time and less than end time from steps (2) and (3),
+respectively.
+
+(5) The top prices from the bar df are the resistance levels for each corresponding row.
+For the ones that qualify from step (1), search the array from step (4) for the first trade
+that exceeds this resistance level in each bar. Average the +second trade volume and divide it by the
+average of the -second trade volume.
+
+
+
+'''
 print(bar_df_)
-resistance_zone_mat = resistance_zone(day_bars_df=bar_df_)
-print(resistance_zone_mat.shape)
-print(resistance_zone_mat)
+resistance_end_points(day_bars_df=bar_df_)
 exit()
 
 data = top_slopes(bar_df=bar_df_)
