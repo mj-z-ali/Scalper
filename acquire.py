@@ -117,28 +117,28 @@ def apply_time_filter(group: pd.DataFrame) -> pd.DataFrame:
         return open_market_bars_df
 '''
 
-def trades(client: REST, symbol: str = 'SPY', start_date: str = "2023-12-18", 
+def trades(client: REST, symbol: str = "SPY", start_date: str = "2023-12-18", 
                 end_date: str = "2023-12-18") -> pd.DataFrame:
         
-        date_list = list_dates(start_date_str=start_date, end_date_str=end_date, freq='1D')
+        date_list = list_dates(start_date_str=start_date, end_date_str=end_date, freq="1D")
 
         trades_df_list = list(map(lambda date : client.get_trades(symbol=symbol, start=date, end=date).df, date_list))
 
         trades_df = pd.concat(trades_df_list)
 
         if trades_df.empty:
-            empty_df = pd.DataFrame(columns=["timestamp","level_0","conditions","id","price","size","exchange","tape"]).set_index('timestamp')
+            empty_df = pd.DataFrame(columns=["timestamp","conditions","id","price","size","exchange","tape"]).set_index('timestamp')
             return empty_df
         
         # Group by date and apply the time filter
         open_market_trades_df = trades_df.groupby(trades_df.index.date) \
             .apply(apply_time_filter) \
-            .reset_index().set_index('timestamp')
+            .reset_index().set_index("timestamp")
 
         print(trades_df)
         print(open_market_trades_df)
 
-        return open_market_trades_df
+        return open_market_trades_df.drop(columns=["level_0"])
 
 params = client.init(paper=True)
 data_client = client.establish_client(params=params)
