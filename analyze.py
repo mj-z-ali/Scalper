@@ -182,7 +182,7 @@ def resistance_zone(day_bars_df: pd.DataFrame) -> np.array:
 resistance line. If argmin is 0 and inf in that location, then there is none.
 
 '''
-def resistance_end_points(day_bars_df: pd.DataFrame) -> np.array:
+def resistance_end_point_indices(day_bars_df: pd.DataFrame) -> np.array:
 
     # Filter out bar top differences beyond the zone (set to inf).
     resistance_zone_mat = resistance_zone(day_bars_df=day_bars_df)
@@ -200,6 +200,7 @@ def resistance_end_points(day_bars_df: pd.DataFrame) -> np.array:
     point_1_indx = np.where(point_2_indx == -1, -1, point_1_indx_)
 
     # Stack current point indx and other points indx and sort from  start to end.
+    # Both point indices are -1 if no resistance line.
     end_point_indx = np.sort(np.column_stack((point_1_indx, point_2_indx)), axis=1)
     
     return end_point_indx
@@ -213,6 +214,34 @@ that succeeds the end index.
 
 (3) Find the first bar after end index that is green and has a top greater than current. 
 The bar after it is our end time of the range we seek.
+'''
+def first_green_brkout_index(day_bars_df: pd.DataFrame, end_point_indices: np.array) -> np.array:
+
+    diff_mat = diff_matrix(matrix=day_bars_df['top'].values)
+
+    col_indices = np.arange(diff_mat.shape[1])
+
+    # Mask to retrieve bars after end-points.
+    after_end_pt_bool = (col_indices > end_point_indices[:, 1, None]) & (end_point_indices[:, 1, None] != -1)
+
+    # Mask to retrieve green bars.
+    green_bool = ~day_bars_df['red'].values
+
+    # Mask to retrieve green bars that are breakouts.
+    green_brkout_bool =  (diff_mat < 0) & green_bool
+
+    # Mask to retrieve green breakout bars after end-points.
+    green_brkout_after_end_pt_bool = green_brkout_bool & after_end_pt_bool
+
+    # Indices of first green breakout bars after end-points.
+    frst_green_brkout_indx_ = np.argmax(green_brkout_after_end_pt_bool, axis=1)
+
+    # Clean, since argmax returns 0 when green breakout bar after end-point not found.
+    frst_green_brkout_indx = np.where((frst_green_brkout_indx_ == 0) & ~green_brkout_after_end_pt_bool[:, 0], -1, frst_green_brkout_indx_)
+
+    return frst_green_brkout_indx
+
+'''
 
 (4) Get the trade df of for the  current date. Split the trades into bar intervals only
 if the time is greater than or equal start time and less than end time from steps (2) and (3),
@@ -227,7 +256,8 @@ average of the -second trade volume.
 
 '''
 print(bar_df_)
-resistance_end_points(day_bars_df=bar_df_)
+end_pt_indices = resistance_end_point_indices(day_bars_df=bar_df_)
+first_green_brkout_index(day_bars_df=bar_df_, end_point_indices=end_pt_indices)
 exit()
 
 data = top_slopes(bar_df=bar_df_)
