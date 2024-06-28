@@ -1,20 +1,27 @@
 import pandas as pd
 import numpy as np
-from functools import reduce
+from functools import reduce, partial
 import k_means as km
 
 import time
 
 
+
+def non_empty_df_intervals(df: pd.DataFrame, interval: str) -> list[pd.DataFrame]:
+
+    df_interval_generator = map(lambda df_pair: df_pair[1], df.resample(interval))
+
+    return list(filter(lambda df_interval: not df_interval.dropna().empty, df_interval_generator))
+
+
+
 def trade_intervals_list(trades_df: pd.DataFrame, interval: str) -> list[pd.DataFrame]:
-    resampled = trades_df.resample(interval)
-    trade_intervals_generator = map(lambda item: item[1], resampled)
-    non_empty_trade_intervals = filter(lambda bar: not bar.dropna().empty, trade_intervals_generator)
-    return list(non_empty_trade_intervals)
+
+    return non_empty_df_intervals(df=trades_df, interval=interval)
     
 
 
-def bars(trade_intervals: list[pd.DataFrame]) -> pd.DataFrame:
+def bars_from_trade_intervals(trade_intervals: list[pd.DataFrame]) -> pd.DataFrame:
 
     red_bar = lambda trade_interval : trade_interval['price'].iloc[-1] <= trade_interval['price'].iloc[0]
     top = lambda trade_interval : trade_interval['price'].iloc[0] if red_bar(trade_interval) else trade_interval['price'].iloc[-1]
@@ -43,8 +50,6 @@ def insert_top_bottom_columns(bar_df: pd.DataFrame) -> pd.DataFrame:
     return bar_df.assign(top=bar_df.apply(top_lambda, axis=1), bottom=bar_df.apply(bottom_lambda,axis=1), 
                 red=bar_df.apply(red_lambda, axis=1))
 
-bar_df = pd.read_csv('18_12_2023_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
-bar_df_ = insert_top_bottom_columns(bar_df=bar_df)
 
 def diff_matrix(matrix: np.array) -> np.array:
 
@@ -67,11 +72,9 @@ def top_differences_day(day_bars_df: pd.DataFrame) -> np.array:
 
 def top_differences(bar_df: pd.DataFrame) -> np.array:
 
-    day_bar_generator = map(lambda day_bar_df: day_bar_df[1], bar_df.resample('1D'))
+    bar_day_interv_df_list = non_empty_df_intervals(df=bar_df, interval="1D")
 
-    non_empty_day_bars = filter(lambda day_bar_df: not day_bar_df.dropna().empty, day_bar_generator)
-
-    top_diffs_list = map(top_differences_day, non_empty_day_bars)
+    top_diffs_list = map(top_differences_day, bar_day_interv_df_list)
 
     return reduce(lambda acc, x: np.append(acc, x), top_diffs_list, np.array([]))
 
@@ -98,49 +101,44 @@ def top_slopes_day(day_bars_df: pd.DataFrame) -> np.array:
 
 def top_slopes(bar_df: pd.DataFrame) -> np.array:
 
-    day_bar_generator = map(lambda day_bar_df: day_bar_df[1], bar_df.resample('1D'))
+    bar_day_interv_df_list = non_empty_df_intervals(df=bar_df, interval="1D")
 
-    non_empty_day_bars = filter(lambda day_bar_df: not day_bar_df.dropna().empty, day_bar_generator)
-
-    top_slopes_list = map(top_slopes_day, non_empty_day_bars)
+    top_slopes_list = map(top_slopes_day, bar_day_interv_df_list)
 
     return reduce(lambda acc, x: np.concatenate((acc, x)), top_slopes_list, np.empty((0, 2)))
 
 def find_last_true_index(bool_matrix: np.array) -> np.array:
     return bool_matrix.shape[1] - np.argmax(bool_matrix[:,::-1], axis=1) - 1
 
-def resistance_zone(day_bars_df: pd.DataFrame) -> np.array:
-
-    # Percentage differences of bar top to all others.
-    diff_mat = diff_matrix(matrix=day_bars_df['top'].values)
+def resistance_zone(day_bars_df: pd.DataFrame, bar_top_diffs: np.array) -> np.array:
 
     # Bar tops differences that are greater than each current bar top diffs.
-    ltz_bool = diff_mat < 0
+    ltz_bool = bar_top_diffs < 0
 
     # Upper triangle not including diagonal. 
     # In particular, all bar top diffs after the current.
-    triu_bool = np.triu(np.ones(diff_mat.shape, dtype=bool), k=1)
+    triu_bool = np.triu(np.ones(bar_top_diffs.shape, dtype=bool), k=1)
 
     # First breakout occurence after each current bar.
     frst_brkout_indices = np.argmax(ltz_bool&triu_bool, axis=1)
     
-    col_indices = np.arange(diff_mat.shape[1])
+    col_indices = np.arange(bar_top_diffs.shape[1])
 
     # Set all values including and after first breakout to True in order to change to inf later.
     brkout_mask = (col_indices >= frst_brkout_indices[:, None]) & (frst_brkout_indices[:, None] != 0)
 
     # Lower triangle excluding diagonal.
-    tril_bool = np.tril(np.ones(diff_mat.shape, dtype=bool), k=-1)
+    tril_bool = np.tril(np.ones(bar_top_diffs.shape, dtype=bool), k=-1)
 
     # First bar top diffs greater than each current that occured before.
     pre_brkout_indices = find_last_true_index(bool_matrix=ltz_bool&tril_bool)
     
     # Set all  values including and before first pre-breakout to True in order to change to inf later.
-    pre_brkout_mask = (col_indices <= pre_brkout_indices[:, None]) & (pre_brkout_indices[:, None] != diff_mat.shape[1]-1)
+    pre_brkout_mask = (col_indices <= pre_brkout_indices[:, None]) & (pre_brkout_indices[:, None] != bar_top_diffs.shape[1]-1)
 
     # Mask where only diagonal is set to true. This represents the current 
     # bar top in relation to itself. We exclude this from the resistance zone.
-    diagonal_mask = np.eye(diff_mat.shape[0], dtype=bool)
+    diagonal_mask = np.eye(bar_top_diffs.shape[0], dtype=bool)
 
     # If bar was red.
     red_bool = day_bars_df['red'].values
@@ -173,19 +171,16 @@ def resistance_zone(day_bars_df: pd.DataFrame) -> np.array:
     resistance_zone_mask = pre_brkout_mask | prev_green_curr_red_mask | diagonal_mask | \
                         curr_green_nxt_red_mask | brkout_mask 
     
-    # Results in the resistance zone left unchanged (set to diff_mat). 
+    # Results in the resistance zone left unchanged (set to bar_top_diffs). 
     # Any values beyond this zone are set to inf.
-    return np.where(resistance_zone_mask, np.inf, diff_mat)
+    return np.where(resistance_zone_mask, np.inf, bar_top_diffs)
 
 '''
 (1) Get index of min for each row. That is the other bar that creates the
 resistance line. If argmin is 0 and inf in that location, then there is none.
 
 '''
-def resistance_end_point_indices(day_bars_df: pd.DataFrame) -> np.array:
-
-    # Filter out bar top differences beyond the zone (set to inf).
-    resistance_zone_mat = resistance_zone(day_bars_df=day_bars_df)
+def resistance_start_end_point_indices(resistance_zone_mat: np.array) -> np.array:
 
     # First point of resistance line is the row index.
     point_1_indx_ = np.arange(resistance_zone_mat.shape[0])
@@ -215,20 +210,21 @@ that succeeds the end index.
 (3) Find the first bar after end index that is green and has a top greater than current. 
 The bar after it is our end time of the range we seek.
 '''
-def first_green_brkout_index(day_bars_df: pd.DataFrame, end_point_indices: np.array) -> np.array:
+def green_bars(day_bars_df: pd.DataFrame) -> np.array:
+    return ~day_bars_df['red'].values
 
-    diff_mat = diff_matrix(matrix=day_bars_df['top'].values)
+def first_green_brkout_index(day_bars_df: pd.DataFrame, bar_top_diffs: np.array, resistance_start_end_pts: np.array) -> np.array:
 
-    col_indices = np.arange(diff_mat.shape[1])
+    col_indices = np.arange(bar_top_diffs.shape[1])
 
     # Mask to retrieve bars after end-points.
-    after_end_pt_bool = (col_indices > end_point_indices[:, 1, None]) & (end_point_indices[:, 1, None] != -1)
+    after_end_pt_bool = (col_indices > resistance_start_end_pts[:, 1, None]) & (resistance_start_end_pts[:, 1, None] != -1)
 
-    # Mask to retrieve green bars.
-    green_bool = ~day_bars_df['red'].values
+    # Mast to retrieve green bars.
+    green_bars_mask = green_bars(day_bars_df=day_bars_df)
 
     # Mask to retrieve green bars that are breakouts.
-    green_brkout_bool =  (diff_mat < 0) & green_bool
+    green_brkout_bool =  (bar_top_diffs < 0) & green_bars_mask
 
     # Mask to retrieve green breakout bars after end-points.
     green_brkout_after_end_pt_bool = green_brkout_bool & after_end_pt_bool
@@ -238,8 +234,104 @@ def first_green_brkout_index(day_bars_df: pd.DataFrame, end_point_indices: np.ar
 
     # Clean, since argmax returns 0 when green breakout bar after end-point not found.
     frst_green_brkout_indx = np.where((frst_green_brkout_indx_ == 0) & ~green_brkout_after_end_pt_bool[:, 0], -1, frst_green_brkout_indx_)
-
+    
     return frst_green_brkout_indx
+
+def range_indices(day_bars_df: pd.DataFrame) -> np.array:
+
+    # Percentage differences of all bar top pairs. 
+    bar_top_diffs = diff_matrix(matrix=day_bars_df['top'].values)
+
+    # Filter out bar top differences beyond the zone (set to inf).
+    resistance_zone_mat = resistance_zone(day_bars_df=day_bars_df, bar_top_diffs=bar_top_diffs)
+
+    resist_start_end_pts = resistance_start_end_point_indices(resistance_zone_mat=resistance_zone_mat)
+
+    # End-points to resistance lines.
+    resist_end_pts = resist_start_end_pts[:, 1]
+
+    # Start index to desired range takes place at bar after resistance line end-point.
+    range_start_indx = np.where(resist_end_pts != -1, resist_end_pts + 1, resist_end_pts)
+
+    # First green breakout bar after resistance end-point surpassing the resistance line.
+    frst_green_brkout = first_green_brkout_index(day_bars_df=day_bars_df, bar_top_diffs=bar_top_diffs, resistance_start_end_pts=resist_start_end_pts)
+
+    # End index to desired range is the bar after the first green breakout.
+    range_end_indx = np.where(frst_green_brkout != -1, frst_green_brkout + 1, frst_green_brkout)
+
+    return np.column_stack((range_start_indx, range_end_indx))
+
+def matching_trade_interval(day_trades_df: pd.DataFrame, day_bars_df: pd.DataFrame) -> list[pd.DataFrame]:
+    
+    # Find bar interval:
+    time_diffs = day_bars_df.index.to_series().diff().dropna()
+
+    interval_minutes = time_diffs.dt.total_seconds() / 60
+
+    common_interval = interval_minutes.mode()[0]
+
+    # Trades grouped in bar intervals.
+    return trade_intervals_list(trades_df=day_trades_df, interval=f"{common_interval}T")
+
+def trade_range_list(trade_interval: list[pd.DataFrame], range_index: np.array):
+    return trade_interval[range_index[0]:range_index[1]]
+
+
+def trades_df_in_range(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame, range_index: np.array) -> pd.DataFrame:
+    
+    start_indx = range_index[1] - 1
+
+    end_indx = min(range_index[1], len(bars_for_day_df)-1)
+
+    start_time = bars_for_day_df.index[start_indx].strftime('%H:%M:%S')
+
+    end_time = bars_for_day_df.index[end_indx].strftime('%H:%M:%S')
+
+    return trades_for_day_df.between_time(start_time=start_time, end_time=end_time, inclusive="right")
+
+def momentum_k_means_data(resistance_level: float, trade_df: pd.DataFrame):
+
+    trade_prices = trade_df['price'].values
+
+    trade_sizes = trade_df['size'].values
+
+    trade_prices_to_resistance_diff = (trade_prices - resistance_level) / resistance_level
+
+    data = np.column_stack((trade_prices_to_resistance_diff, trade_sizes))
+    
+    return data
+
+def momentum(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame, range_indices: np.array):
+
+    valid_range_bool = (range_indices[:, 0] != -1) & (range_indices[:, 1] != -1)
+
+    valid_resistance_levels =  bars_for_day_df["top"].values[valid_range_bool]
+
+    valid_range_indices = range_indices[valid_range_bool]
+
+    print(valid_range_indices)
+
+    partial_trade_dfs_in_range = list(map(partial(trades_df_in_range, bars_for_day_df, trades_for_day_df), valid_range_indices))
+
+    data_list = list(map(momentum_k_means_data, valid_resistance_levels, partial_trade_dfs_in_range))
+
+    return data_list
+
+def resistance_slopes_and_momentum_data(bar_df: pd.DataFrame, trade_df: pd.DataFrame):
+
+    bar_day_interv_df_list = non_empty_df_intervals(df=bar_df, interval="1D")
+
+    trades_day_interv_df_list = non_empty_df_intervals(df=trade_df, interval="1D")
+
+    # trade_interval_list = list(map(matching_trade_interval, trades_day_interv_df_list, bar_day_interv_df_list))
+
+    range_indices_list = list(map(range_indices, bar_day_interv_df_list))
+
+    return list(map(momentum, bar_day_interv_df_list, trades_day_interv_df_list,  range_indices_list))
+
+    
+    
+    
 
 '''
 
@@ -255,10 +347,9 @@ average of the -second trade volume.
 
 
 '''
-print(bar_df_)
-end_pt_indices = resistance_end_point_indices(day_bars_df=bar_df_)
-first_green_brkout_index(day_bars_df=bar_df_, end_point_indices=end_pt_indices)
-exit()
+
+'''
+
 
 data = top_slopes(bar_df=bar_df_)
 
@@ -417,3 +508,4 @@ print(f"centroids, labels, k, score {centroids, labels, k, score}")
 # [0.03902596, 0.        ]]
 # )
 
+'''
