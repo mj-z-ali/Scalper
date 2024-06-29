@@ -32,7 +32,7 @@ def list_dates(start_date_str: str, end_date_str: str, freq: str='1D') -> list[s
         return delta.days
 '''
 
-def add_days_to_date(date_str: str, days_to_add: int):
+def add_days_to_date(date_str: str, days_to_add: int) -> str:
 
     date_format = "%Y-%m-%d"
 
@@ -43,6 +43,18 @@ def add_days_to_date(date_str: str, days_to_add: int):
     new_date_str = new_date_obj.strftime(date_format)
 
     return new_date_str
+
+def add_minutes_to_time(time_str: str, minutes_to_add: int) -> str:
+
+    time_format = "%H:%M:%S"
+
+    time_obj = datetime.strptime(time_str, time_format)
+
+    new_time_obj = time_obj + timedelta(minutes=minutes_to_add)
+
+    new_time_str = new_time_obj.strftime(time_format)
+
+    return new_time_str
 
     
 def check_dst(utc_date: datetime) -> bool:
