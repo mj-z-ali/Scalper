@@ -287,18 +287,21 @@ def trades_df_in_range(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.Data
 
     end_time = bars_for_day_df.index[end_indx].strftime('%H:%M:%S')
 
-    return trades_for_day_df.between_time(start_time=start_time, end_time=end_time, inclusive="right")
+    return trades_for_day_df.between_time(start_time=start_time, end_time=end_time, inclusive="left")
 
-def momentum_k_means_data(resistance_level: float, trade_df: pd.DataFrame):
+def momentum_k_means_data(resistance_level: float, trade_df: pd.DataFrame) -> np.array:
 
     trade_prices = trade_df['price'].values
 
     trade_sizes = trade_df['size'].values
 
-    trade_prices_to_resistance_diff = (trade_prices - resistance_level) / resistance_level
+    trade_prices_to_resistance_diff = (trade_prices - resistance_level) 
 
-    data = np.column_stack((trade_prices_to_resistance_diff, trade_sizes))
+    trade_occurence_diff = trade_df.index.to_series().diff().dt.total_seconds().fillna(0)
+
+    data = np.column_stack((trade_prices_to_resistance_diff, trade_sizes, trade_occurence_diff))
     
+    print(f"mean{data.mean(axis=0)}")
     return data
 
 def momentum(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame, range_indices: np.array):
@@ -315,6 +318,14 @@ def momentum(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame, ran
 
     data_list = list(map(momentum_k_means_data, valid_resistance_levels, partial_trade_dfs_in_range))
 
+    print(np.column_stack((
+        np.arange(valid_range_indices.shape[0]),
+        valid_range_indices,
+        valid_resistance_levels,
+        np.array([trade_df['price'].max() for trade_df in partial_trade_dfs_in_range])
+    )))
+    print(valid_resistance_levels[21])
+    print(partial_trade_dfs_in_range[21]['price'].max())
     return data_list
 
 def resistance_slopes_and_momentum_data(bar_df: pd.DataFrame, trade_df: pd.DataFrame):
