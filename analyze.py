@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from functools import reduce, partial
 import k_means as km
-
+import acquire
 import time
 
 
@@ -248,21 +248,20 @@ def range_indices(day_bars_df: pd.DataFrame) -> np.array:
     resist_start_end_pts = resistance_start_end_point_indices(resistance_zone_mat=resistance_zone_mat)
 
     # End-points to resistance lines.
-    resist_end_pts = resist_start_end_pts[:, 1]
+    resist_end_pt = resist_start_end_pts[:, 1]
 
-    # Start index to desired range takes place at bar after resistance line end-point.
-    range_start_indx = np.where(resist_end_pts != -1, resist_end_pts + 1, resist_end_pts)
+    # Start index for desired range takes place at bar after resistance line end-point.
+    # range_start_indx = np.where(resist_end_pts != -1, resist_end_pts + 1, resist_end_pts)
 
     # First green breakout bar after resistance end-point surpassing the resistance line.
     frst_green_brkout = first_green_brkout_index(day_bars_df=day_bars_df, bar_top_diffs=bar_top_diffs, resistance_start_end_pts=resist_start_end_pts)
 
-    # End index to desired range is the bar after the first green breakout.
-    range_end_indx = np.where(frst_green_brkout != -1, frst_green_brkout + 1, frst_green_brkout)
+    # End index for desired range is the bar after the first green breakout.
+    # range_end_indx = np.where(frst_green_brkout != -1, frst_green_brkout + 1, frst_green_brkout)
 
-    return np.column_stack((range_start_indx, range_end_indx))
+    return np.column_stack((resist_end_pt, frst_green_brkout))
 
-def matching_trade_interval(day_trades_df: pd.DataFrame, day_bars_df: pd.DataFrame) -> list[pd.DataFrame]:
-    
+def bar_interval_in_minutes(day_bars_df: pd.DataFrame) -> int:
     # Find bar interval:
     time_diffs = day_bars_df.index.to_series().diff().dropna()
 
@@ -270,22 +269,32 @@ def matching_trade_interval(day_trades_df: pd.DataFrame, day_bars_df: pd.DataFra
 
     common_interval = interval_minutes.mode()[0]
 
+    return common_interval
+
+def matching_trade_interval(day_trades_df: pd.DataFrame, day_bars_df: pd.DataFrame) -> list[pd.DataFrame]:
+    
+    bar_interval = bar_interval_in_minutes(day_bars_df=day_bars_df)
+
     # Trades grouped in bar intervals.
-    return trade_intervals_list(trades_df=day_trades_df, interval=f"{common_interval}T")
+    return trade_intervals_list(trades_df=day_trades_df, interval=f"{bar_interval}T")
 
 def trade_range_list(trade_interval: list[pd.DataFrame], range_index: np.array):
     return trade_interval[range_index[0]:range_index[1]]
 
 
-def trades_df_in_range(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame, range_index: np.array) -> pd.DataFrame:
+def trades_df_in_range(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame, range_indices: np.array) -> pd.DataFrame:
     
-    start_indx = range_index[1] - 1
+    resist_end_bar_indx = range_indices[0]
 
-    end_indx = min(range_index[1], len(bars_for_day_df)-1)
+    brkout_bar_indx = range_indices[1]
 
-    start_time = bars_for_day_df.index[start_indx].strftime('%H:%M:%S')
+    brkout_bar_time = bars_for_day_df.index[brkout_bar_indx].strftime('%H:%M:%S')
 
-    end_time = bars_for_day_df.index[end_indx].strftime('%H:%M:%S')
+    bar_interval = bar_interval_in_minutes(bars_for_day_df)
+
+    start_time = bars_for_day_df.index[resist_end_bar_indx].strftime('%H:%M:%S')
+
+    end_time = acquire.add_minutes_to_time(time_str=brkout_bar_time, minutes_to_add=bar_interval)
 
     return trades_for_day_df.between_time(start_time=start_time, end_time=end_time, inclusive="left")
 
@@ -295,13 +304,32 @@ def momentum_k_means_data(resistance_level: float, trade_df: pd.DataFrame) -> np
 
     trade_sizes = trade_df['size'].values
 
-    trade_prices_to_resistance_diff = (trade_prices - resistance_level) 
+    upper_resist_bool = (trade_prices > resistance_level)
 
-    trade_occurence_diff = trade_df.index.to_series().diff().dt.total_seconds().fillna(0)
-
-    data = np.column_stack((trade_prices_to_resistance_diff, trade_sizes, trade_occurence_diff))
+    lower_resist_bool = (trade_prices < resistance_level)
     
-    print(f"mean{data.mean(axis=0)}")
+    trade_sizes_upper_resist = trade_sizes[upper_resist_bool]
+
+    trade_sizes_lower_resist = trade_sizes[lower_resist_bool]
+
+    trade_occurence = trade_df.index.to_series().diff().dt.total_seconds().fillna(0)
+
+    trade_occur_upper_resist = trade_occurence[upper_resist_bool]
+
+    trade_occur_lower_resist = trade_occurence[lower_resist_bool]
+
+    trade_occur_diff = trade_occur_upper_resist.mean() / trade_occur_lower_resist.mean()
+
+    trade_sizes_diff = trade_sizes_upper_resist.mean() / trade_sizes_lower_resist.mean()
+
+    trades_lower_count = len(trade_prices[(trade_prices > (resistance_level-0.05)) & (trade_prices < resistance_level)])
+
+    trades_upper_count = len(trade_prices[(trade_prices > resistance_level) & (trade_prices < (resistance_level+0.05))])
+
+    trades_count_diff = trades_upper_count / trades_lower_count
+
+    data = np.column_stack((trade_occur_diff, trades_count_diff))
+    
     return data
 
 def momentum(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame, range_indices: np.array):
@@ -311,8 +339,6 @@ def momentum(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame, ran
     valid_resistance_levels =  bars_for_day_df["top"].values[valid_range_bool]
 
     valid_range_indices = range_indices[valid_range_bool]
-
-    print(valid_range_indices)
 
     partial_trade_dfs_in_range = list(map(partial(trades_df_in_range, bars_for_day_df, trades_for_day_df), valid_range_indices))
 
@@ -324,8 +350,7 @@ def momentum(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame, ran
         valid_resistance_levels,
         np.array([trade_df['price'].max() for trade_df in partial_trade_dfs_in_range])
     )))
-    print(valid_resistance_levels[21])
-    print(partial_trade_dfs_in_range[21]['price'].max())
+
     return data_list
 
 def resistance_slopes_and_momentum_data(bar_df: pd.DataFrame, trade_df: pd.DataFrame):
