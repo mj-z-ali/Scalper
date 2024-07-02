@@ -4,7 +4,7 @@ from functools import reduce, partial
 import k_means as km
 import acquire
 import time
-
+import plt
 
 
 def non_empty_df_intervals(df: pd.DataFrame, interval: str) -> list[pd.DataFrame]:
@@ -323,7 +323,7 @@ def momentum_data(resistance_level: float, trade_df: pd.DataFrame) -> np.array:
 
     trades_count_diff = trades_upper_count / trades_lower_count
 
-    
+    return np.sqrt(np.sum((trade_prices[upper_resist_bool] - resistance_level)**2))
     return trade_occur_diff
 
 def resistance_slopes_data(bar_top_diffs: np.array, resistance_points: np.array):
@@ -345,7 +345,7 @@ def resistance_slopes_data(bar_top_diffs: np.array, resistance_points: np.array)
 
     return slope_numerator / slope_denominator
 
-def data_each_day(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame):
+def resistance_data(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame):
 
     # Percentage differences of all bar top pairs. 
     bar_top_diffs = diff_matrix(matrix=bars_for_day_df['top'].values)
@@ -364,7 +364,7 @@ def data_each_day(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame
 
     valid_resistance_levels =  bars_for_day_df["top"].values[valid_resist_bool]
 
-    moment_data = np.array(list(map(momentum_data, valid_resistance_levels, trade_df_btwn_range_pts)))
+    moment_data = np.array(list(map(momentum_data, valid_resistance_levels, trade_df_btwn_range_pts))).reshape(-1,1)
     
     print(np.column_stack((
         np.arange(valid_range_pts.shape[0]),
@@ -375,19 +375,39 @@ def data_each_day(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame
         np.array([trade_df['price'].max() for trade_df in trade_df_btwn_range_pts])
     )))
 
-    return np.column_stack((resist_slopes_data, moment_data))
+    return np.column_stack((resist_pts[valid_resist_bool], valid_resistance_levels, resist_slopes_data, moment_data))
 
-def data(bar_df: pd.DataFrame, trade_df: pd.DataFrame):
+def resistance_centroids(bar_df: pd.DataFrame, trade_df: pd.DataFrame):
 
     bar_day_interv_df_list = non_empty_df_intervals(df=bar_df, interval="1D")
 
     trades_day_interv_df_list = non_empty_df_intervals(df=trade_df, interval="1D")
 
-    data_generator = map(data_each_day, bar_day_interv_df_list, trades_day_interv_df_list)
+    data_generator = map(resistance_data, bar_day_interv_df_list, trades_day_interv_df_list)
 
-    return reduce(lambda acc, x : np.concatenate((acc, x)), data_generator, np.empty((0,2)))
+    resist_indx_slope_moment = reduce(lambda acc, x : np.concatenate((acc, x)), data_generator, np.empty((0,5)))
     
+    centroids, labels = km.train(data=resist_indx_slope_moment[:,3:], number_of_centroids=7, iteration=0, max_iterations=100)
     
+    return centroids, labels
+
+def resistance_inference(centroids: np.array, resistance_data_for_day: np.array) -> np.array:
+
+    labels = km.inference(data=resistance_data_for_day[:, 3:], centroids=centroids)
+
+    return resistance_data_for_day[labels==1]
+
+def resistance_plot(bar_df: pd.DataFrame, trade_df: pd.DataFrame, centroids: np.array):
+    
+    bar_day_interv_df_list = non_empty_df_intervals(df=bar_df, interval="1D")
+
+    trades_day_interv_df_list = non_empty_df_intervals(df=trade_df, interval="1D")
+
+    data_generator = map(resistance_data, bar_day_interv_df_list, trades_day_interv_df_list)
+
+    resistance_data_generator = map(partial(resistance_inference, centroids), data_generator)
+
+    list(map(lambda bar_df, data: plt.plot_resistances(bar_df, data[:,:2], data[:, 2]), bar_day_interv_df_list, resistance_data_generator))
 
 '''
 
