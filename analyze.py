@@ -323,8 +323,13 @@ def momentum_data(resistance_level: float, trade_df: pd.DataFrame) -> np.array:
 
     trades_count_diff = trades_upper_count / trades_lower_count
 
-    return np.sqrt(np.sum((trade_prices[upper_resist_bool] - resistance_level)**2))
-    return trade_occur_diff
+    trade_prices_upper_std = np.sqrt(np.sum((trade_prices[upper_resist_bool] - resistance_level)**2))
+    
+    trade_prices_lower_std = np.power(np.sum((trade_prices[lower_resist_bool] - resistance_level)**2), 1/128)
+
+    
+    return np.array([trade_prices_lower_std])
+
 
 def resistance_slopes_data(bar_top_diffs: np.array, resistance_points: np.array):
 
@@ -342,6 +347,7 @@ def resistance_slopes_data(bar_top_diffs: np.array, resistance_points: np.array)
     # resistance lines.
     slope_denominator = np.diff(resistance_points)
 
+    return np.power(slope_numerator, 1/1.5)
 
     return slope_numerator / slope_denominator
 
@@ -360,11 +366,17 @@ def resistance_data(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFra
 
     valid_range_pts = range_pts[valid_resist_bool]
 
+    valid_resist_area_pts = np.column_stack((resist_pts[valid_resist_bool][:, 0], valid_range_pts[:, 1]))
+
     trade_df_btwn_range_pts = list(map(partial(trades_df_in_range, bars_for_day_df, trades_for_day_df), valid_range_pts))
+
+    trade_df_btwn_resist_pts = list(map(partial(trades_df_in_range, bars_for_day_df, trades_for_day_df), resist_pts[valid_resist_bool]))
+
+    trade_df_in_area = list(map(partial(trades_df_in_range, bars_for_day_df, trades_for_day_df), valid_resist_area_pts))
 
     valid_resistance_levels =  bars_for_day_df["top"].values[valid_resist_bool]
 
-    moment_data = np.array(list(map(momentum_data, valid_resistance_levels, trade_df_btwn_range_pts))).reshape(-1,1)
+    moment_data = np.array(list(map(momentum_data, valid_resistance_levels, trade_df_in_area)))
     
     print(np.column_stack((
         np.arange(valid_range_pts.shape[0]),
@@ -387,7 +399,7 @@ def resistance_centroids(bar_df: pd.DataFrame, trade_df: pd.DataFrame):
 
     resist_indx_slope_moment = reduce(lambda acc, x : np.concatenate((acc, x)), data_generator, np.empty((0,5)))
     
-    centroids, labels = km.train(data=resist_indx_slope_moment[:,3:], number_of_centroids=7, iteration=0, max_iterations=100)
+    centroids, labels = km.train(data=resist_indx_slope_moment[:,3:], number_of_centroids=13, iteration=0, max_iterations=100)
     
     return centroids, labels
 
@@ -395,7 +407,7 @@ def resistance_inference(centroids: np.array, resistance_data_for_day: np.array)
 
     labels = km.inference(data=resistance_data_for_day[:, 3:], centroids=centroids)
 
-    return resistance_data_for_day[labels==1]
+    return resistance_data_for_day[(labels==11)]
 
 def resistance_plot(bar_df: pd.DataFrame, trade_df: pd.DataFrame, centroids: np.array):
     
