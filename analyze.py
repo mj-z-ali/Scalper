@@ -41,14 +41,14 @@ def bars_from_trade_intervals(trade_intervals: list[pd.DataFrame]) -> pd.DataFra
 
 
 
-def insert_top_bottom_columns(bar_df: pd.DataFrame) -> pd.DataFrame:
+def insert_top_bottom_columns(bars: pd.DataFrame) -> pd.DataFrame:
 
     red_lambda = lambda bar_row : bar_row['close'] <= bar_row['open']
     top_lambda = lambda bar_row : bar_row['open'] if red_lambda(bar_row) else bar_row['close']
     bottom_lambda = lambda bar_row : bar_row['close'] if red_lambda(bar_row) else bar_row['open'] 
 
-    return bar_df.assign(top=bar_df.apply(top_lambda, axis=1), bottom=bar_df.apply(bottom_lambda,axis=1), 
-                red=bar_df.apply(red_lambda, axis=1))
+    return bars.assign(top=bars.apply(top_lambda, axis=1), bottom=bars.apply(bottom_lambda,axis=1), 
+                red=bars.apply(red_lambda, axis=1))
 
 
 def diff_matrix(matrix: np.array) -> np.array:
@@ -61,34 +61,34 @@ def diff_matrix(matrix: np.array) -> np.array:
 
     return diff_matrix
 
-def top_differences_day(day_bars_df: pd.DataFrame) -> np.array:
+def top_differences_day(bars_for_day: pd.DataFrame) -> np.array:
 
-    n = len(day_bars_df['top'].values)
+    n = len(bars_for_day['top'].values)
 
     upper_row, upper_col = np.triu_indices(n=n, k=1)
 
-    return diff_matrix(matrix=day_bars_df['top'].values)[upper_row, upper_col]
+    return diff_matrix(matrix=bars_for_day['top'].values)[upper_row, upper_col]
 
 
-def top_differences(bar_df: pd.DataFrame) -> np.array:
+def top_differences(bars: pd.DataFrame) -> np.array:
 
-    bar_day_interv_df_list = non_empty_df_intervals(df=bar_df, interval="1D")
+    bar_day_interv_df_list = non_empty_df_intervals(df=bars, interval="1D")
 
     top_diffs_list = map(top_differences_day, bar_day_interv_df_list)
 
     return reduce(lambda acc, x: np.append(acc, x), top_diffs_list, np.array([]))
 
 
-def top_slopes_day(day_bars_df: pd.DataFrame) -> np.array:
+def top_slopes_day(bars_for_day: pd.DataFrame) -> np.array:
 
-    n = len(day_bars_df['top'].values)
+    n = len(bars_for_day['top'].values)
 
     # Upper triangle indices excluding diagonal since it and the lower part 
     # is relationship of bar to itself and past bars.
     upper_row, upper_col = np.triu_indices(n=n, k=1)
 
     # Percentage differences of bar top to all others.
-    diff_mat = diff_matrix(matrix=day_bars_df['top'].values)[upper_row, upper_col]
+    diff_mat = diff_matrix(matrix=bars_for_day['top'].values)[upper_row, upper_col]
 
     indices = np.arange(n).reshape(1,n)
 
@@ -99,9 +99,9 @@ def top_slopes_day(day_bars_df: pd.DataFrame) -> np.array:
 
     return np.column_stack((slopes, lengths))
 
-def top_slopes(bar_df: pd.DataFrame) -> np.array:
+def top_slopes(bars: pd.DataFrame) -> np.array:
 
-    bar_day_interv_df_list = non_empty_df_intervals(df=bar_df, interval="1D")
+    bar_day_interv_df_list = non_empty_df_intervals(df=bars, interval="1D")
 
     top_slopes_list = map(top_slopes_day, bar_day_interv_df_list)
 
@@ -110,7 +110,7 @@ def top_slopes(bar_df: pd.DataFrame) -> np.array:
 def find_last_true_index(bool_matrix: np.array) -> np.array:
     return bool_matrix.shape[1] - np.argmax(bool_matrix[:,::-1], axis=1) - 1
 
-def resistance_zone(day_bars_df: pd.DataFrame, bar_top_diffs: np.array) -> np.array:
+def resistance_zone(bars_for_day: pd.DataFrame, bar_top_diffs: np.array) -> np.array:
 
     # Bar tops differences that are greater than each current bar top diffs.
     ltz_bool = bar_top_diffs < 0
@@ -141,7 +141,7 @@ def resistance_zone(day_bars_df: pd.DataFrame, bar_top_diffs: np.array) -> np.ar
     diagonal_mask = np.eye(bar_top_diffs.shape[0], dtype=bool)
 
     # If bar was red.
-    red_bool = day_bars_df['red'].values
+    red_bool = bars_for_day['red'].values
 
     # If  previous bar was red.
     prev_red_bool = np.concatenate(([False], red_bool[:-1]))
@@ -180,10 +180,10 @@ def resistance_zone(day_bars_df: pd.DataFrame, bar_top_diffs: np.array) -> np.ar
 resistance line. If argmin is 0 and inf in that location, then there is none.
 
 '''
-def resistance_start_end_point_indices(day_bars_df: np.array, bar_top_diffs: np.array) -> np.array:
+def resistance_points(bars_for_day: np.array, bar_top_diffs: np.array) -> np.array:
 
     # Filter out bar top differences beyond the zone (set to inf).
-    resistance_zone_mat = resistance_zone(day_bars_df=day_bars_df, bar_top_diffs=bar_top_diffs)
+    resistance_zone_mat = resistance_zone(bars_for_day=bars_for_day, bar_top_diffs=bar_top_diffs)
 
     # First point of resistance line is the row index.
     point_1_indx_ = np.arange(resistance_zone_mat.shape[0])
@@ -213,52 +213,62 @@ that succeeds the end index.
 (3) Find the first bar after end index that is green and has a top greater than current. 
 The bar after it is our end time of the range we seek.
 '''
-def green_bars(day_bars_df: pd.DataFrame) -> np.array:
-    return ~day_bars_df['red'].values
+def green_bars(bars_for_day: pd.DataFrame) -> np.array:
+    return ~bars_for_day['red'].values
 
-def first_green_brkout_index(day_bars_df: pd.DataFrame, bar_top_diffs: np.array, resistance_end_pt: np.array) -> np.array:
+def first_green_breakout(bars_for_day: pd.DataFrame, bar_top_diffs: np.array, resistance_endpoint: np.array) -> np.array:
+    # Params: bar_top_diffs of type 2D np.array [[float ... float], ..., [float ... float]]. 
+    # resistance_endpoint of type np.array [int ... int].
 
     col_indices = np.arange(bar_top_diffs.shape[1])
 
-    # Mask to retrieve bars after end-points.
-    after_end_pt_bool = (col_indices > resistance_end_pt[:, None]) & (resistance_end_pt[:, None] != -1)
+    # Mask to retrieve bars after each resistance endpoint.
+    bars_after_resist_endpt_mask = (col_indices > resistance_endpoint[:, None]) & (resistance_endpoint[:, None] != -1)
 
-    # Mast to retrieve green bars.
-    green_bars_mask = green_bars(day_bars_df=day_bars_df)
+    # Mask to retrieve green bars.
+    green_bars_mask = green_bars(bars_for_day=bars_for_day)
 
     # Mask to retrieve green bars that are breakouts.
-    green_brkout_bool =  (bar_top_diffs < 0) & green_bars_mask
+    # Less-than-zero operation is performed since resistance
+    # line minus a higher bar top is negative.
+    green_brkout_mask =  (bar_top_diffs < 0) & green_bars_mask
 
-    # Mask to retrieve green breakout bars after end-points.
-    green_brkout_after_end_pt_bool = green_brkout_bool & after_end_pt_bool
+    # Mask to retrieve green breakout bars after endpoints.
+    green_brkout_after_resist_endpt_mask = green_brkout_mask & bars_after_resist_endpt_mask
 
-    # Indices of first green breakout bars after end-points.
-    frst_green_brkout_indx_ = np.argmax(green_brkout_after_end_pt_bool, axis=1)
+    # Indices of first green breakout bars after endpoints.
+    # If not found in current row, argmax returns 0.
+    frst_green_brkout_indx_ = np.argmax(green_brkout_after_resist_endpt_mask, axis=1)
 
-    # Clean, since argmax returns 0 when green breakout bar after end-point not found.
-    frst_green_brkout_indx = np.where((frst_green_brkout_indx_ == 0) & ~green_brkout_after_end_pt_bool[:, 0], -1, frst_green_brkout_indx_)
+    # Clean and replace with -1 since argmax returns 0 when green breakout not found in current row.
+    frst_green_brkout_indx = np.where((frst_green_brkout_indx_ == 0) & ~green_brkout_after_resist_endpt_mask[:, 0], -1, frst_green_brkout_indx_)
     
     return frst_green_brkout_indx
 
-def range_indices(day_bars_df: pd.DataFrame, bar_top_diffs: np.array, resistance_start_end_pts: np.array) -> np.array:
+def resistance_endpoint_to_breakout_ranges(bars_for_day: pd.DataFrame, bar_top_diffs: np.array, resistance_points: np.array) -> np.array:
+    # Params: bar_top_diffs of type 2D np.array [[float ... float], ..., [float ... float]]. 
+    # resistance_points of type 2D np.array [[int, int] ... [int, int]]
 
-    # End-points to resistance lines.
-    resist_end_pt = resistance_start_end_pts[:, 1]
+    # Endpoints to resistance lines.
+    # Type np.array [int ... int]
+    resist_endpt = resistance_points[:, 1]
 
     # Start index for desired range takes place at bar after resistance line end-point.
-    # range_start_indx = np.where(resist_end_pts != -1, resist_end_pts + 1, resist_end_pts)
+    # range_start_indx = np.where(resist_endpt != -1, resist_endpt + 1, resist_endpt)
 
-    # First green breakout bar after resistance end-point surpassing the resistance line.
-    frst_green_brkout = first_green_brkout_index(day_bars_df=day_bars_df, bar_top_diffs=bar_top_diffs, resistance_end_pt=resist_end_pt)
+    # Index of first green breakout bar after resistance endpoint that surpasses the resistance line.
+    frst_green_brkout = first_green_breakout(bars_for_day, bar_top_diffs, resist_endpt)
 
     # End index for desired range is the bar after the first green breakout.
     # range_end_indx = np.where(frst_green_brkout != -1, frst_green_brkout + 1, frst_green_brkout)
 
-    return np.column_stack((resist_end_pt, frst_green_brkout))
+    return np.column_stack((resist_endpt, frst_green_brkout))
 
-def bar_interval_in_minutes(day_bars_df: pd.DataFrame) -> int:
-    # Find bar interval:
-    time_diffs = day_bars_df.index.to_series().diff().dropna()
+def bar_interval_in_minutes(bars_for_day: pd.DataFrame) -> int:
+    # Find bar interval of given bar dataframe.
+    # ie. 1-Min, 5-Min, etc.
+
+    time_diffs = bars_for_day.index.to_series().diff().dropna()
 
     interval_minutes = time_diffs.dt.total_seconds() / 60
 
@@ -266,134 +276,138 @@ def bar_interval_in_minutes(day_bars_df: pd.DataFrame) -> int:
 
     return common_interval
 
-def matching_trade_interval(day_trades_df: pd.DataFrame, day_bars_df: pd.DataFrame) -> list[pd.DataFrame]:
+def matching_trade_interval(trades_for_day: pd.DataFrame, bars_for_day: pd.DataFrame) -> list[pd.DataFrame]:
     
-    bar_interval = bar_interval_in_minutes(day_bars_df=day_bars_df)
+    bar_interval = bar_interval_in_minutes(bars_for_day=bars_for_day)
 
     # Trades grouped in bar intervals.
-    return trade_intervals_list(trades_df=day_trades_df, interval=f"{bar_interval}T")
+    # Type list of [df, ..., df] st. each df contains only 
+    # trades that  occured in that corresponding bar interval.
+    return trade_intervals_list(trades_df=trades_for_day, interval=f"{bar_interval}T")
 
-def trade_range_list(trade_interval: list[pd.DataFrame], range_index: np.array):
-    return trade_interval[range_index[0]:range_index[1]]
+def trade_interval_in_range(trade_interval: list[pd.DataFrame], range: np.array) -> list[pd.DataFrame]:
+    # Params: trade_interval of type list [df, ..., df]. A list of 
+    # trade dataframes grouped in intervals.
+    # range of type [int, int]
+
+    return trade_interval[range[0]:range[1]]
 
 
-def trades_df_in_range(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame, range_indices: np.array) -> pd.DataFrame:
-    
-    resist_end_bar_indx = range_indices[0]
+def trades_in_range(bars_for_day: pd.DataFrame, trades_for_day: pd.DataFrame, range: np.array) -> pd.DataFrame:
+    # Params: range = np.array of [int, int].
+    # Filter trades dataframe to only trades that occured between specified bar range.
 
-    brkout_bar_indx = range_indices[1]
+    start_bar_index = range[0]
 
-    brkout_bar_time = bars_for_day_df.index[brkout_bar_indx].strftime('%H:%M:%S')
+    end_bar_index = range[1]
 
-    bar_interval = bar_interval_in_minutes(bars_for_day_df)
+    end_bar_start_time = bars_for_day.index[end_bar_index].strftime('%H:%M:%S')
 
-    start_time = bars_for_day_df.index[resist_end_bar_indx].strftime('%H:%M:%S')
+    bar_interval = bar_interval_in_minutes(bars_for_day)
 
-    end_time = acquire.add_minutes_to_time(time_str=brkout_bar_time, minutes_to_add=bar_interval)
+    start_time = bars_for_day.index[start_bar_index].strftime('%H:%M:%S')
 
-    return trades_for_day_df.between_time(start_time=start_time, end_time=end_time, inclusive="left")
+    end_time = acquire.add_minutes_to_time(time_str=end_bar_start_time, minutes_to_add=bar_interval)
 
-def momentum_data(resistance_level: float, trade_df: pd.DataFrame) -> np.array:
+    return trades_for_day.between_time(start_time=start_time, end_time=end_time, inclusive="left")
 
-    trade_prices = trade_df['price'].values
+def lower_resistance_variance_data(resistance_level: float, trades: pd.DataFrame) -> np.array:
 
-    trade_sizes = trade_df['size'].values
-
-    upper_resist_bool = (trade_prices > resistance_level)
+    trade_prices = trades['price'].values
 
     lower_resist_bool = (trade_prices < resistance_level)
-    
-    trade_sizes_upper_resist = trade_sizes[upper_resist_bool]
 
-    trade_sizes_lower_resist = trade_sizes[lower_resist_bool]
-
-    trade_occurence = trade_df.index.to_series().diff().dt.total_seconds().fillna(0)
-
-    trade_occur_upper_resist = trade_occurence[upper_resist_bool]
-
-    trade_occur_lower_resist = trade_occurence[lower_resist_bool]
-
-    trade_occur_diff = trade_occur_upper_resist.mean() / trade_occur_lower_resist.mean()
-
-    trade_sizes_diff = trade_sizes_upper_resist.mean() / trade_sizes_lower_resist.mean()
-
-    trades_lower_count = len(trade_prices[(trade_prices > (resistance_level-0.05)) & (trade_prices < resistance_level)])
-
-    trades_upper_count = len(trade_prices[(trade_prices > resistance_level) & (trade_prices < (resistance_level+0.05))])
-
-    trades_count_diff = trades_upper_count / trades_lower_count
-
-    trade_prices_upper_std = np.sqrt(np.sum((trade_prices[upper_resist_bool] - resistance_level)**2))
-    
     trade_prices_lower_std = np.power(np.sum((trade_prices[lower_resist_bool] - resistance_level)**2), 1/128)
 
-    
     return np.array([trade_prices_lower_std])
 
 
-def resistance_slopes_data(bar_top_diffs: np.array, resistance_points: np.array):
+def resistance_slopes(bar_top_diffs: np.array, resistance_points: np.array):
+    # Params: bar_top_diffs of type 2D np.array [[float, ..., float] ... [float, ..., float]].
+    # resistance_points of type 2D np.array [[int, int] ... [int, int]].
 
+    # For selecting each row in bar_top_diffs.
     row_indices = np.arange(bar_top_diffs.shape[0]).reshape(-1,1)
 
-    # One bar top diff is the resistance line iteself, which will have 
-    # a diff of 0 to itself. The other bar creates the resistance line,
+    # One bar top diff is the resistance level iteself, which will have 
+    # a diff of 0 to itself. The other bar completes the resistance line,
     # which has a top diff  of ≥ 0 relative to the resistance line.
-    # This is because we selected the next highest bar after the current
-    # resistance line to define the second point. 
+    # This is because we selected the next point of the resistance line
+    # as the next highest bar. 
     slope_numerator = np.max(bar_top_diffs[row_indices, resistance_points], axis=1).reshape(-1,1)
 
     # Number of bars in between the two points.
-    # This can never be 0 as we filtered out ineligible 
-    # resistance lines.
+    # This can never be 0 as it is assumed resistance points filtered 
+    # out ineligible resistance lines.
     slope_denominator = np.diff(resistance_points)
 
+    # x-root of slope_numerator. This should reduce the variance of group
+    # of values closer to 0 then it would to ones further away.
     return np.power(slope_numerator, 1/1.5)
 
-    return slope_numerator / slope_denominator
+def trades_between_two_bars(bars_for_day: pd.DataFrame, trades_for_day: pd.DataFrame, ranges: np.array) -> list[pd.DataFrame]:
+    # Params: ranges = 2D np.array of [[int, int] ... [int, int]].
+    # List of trade dataframes for each range-point in ranges.
+    # Dataframes only include trades that occured between bars
+    # specied by ranges parameter.
 
-def resistance_data(bars_for_day_df: pd.DataFrame, trades_for_day_df: pd.DataFrame):
+    return list(map(partial(trades_in_range, bars_for_day, trades_for_day), ranges))
+
+def coalesce_ranges(range_i: np.array, range_j: np.array) -> np.array:
+    # Params: range_i and range_j both of type 2D np.array of [[int, int] ...  [int, int]]
+    # Combine ranges, assuming range_j[:, 1] > range_i[:, 0].
+
+    return np.column_stack((range_i[:, 0], range_j[:, 1]))
+    
+def resistance_data(bars_for_day: pd.DataFrame, trades_for_day: pd.DataFrame):
 
     # Percentage differences of all bar top pairs. 
-    bar_top_diffs = diff_matrix(matrix=bars_for_day_df['top'].values)
-
-    resist_pts = resistance_start_end_point_indices(day_bars_df=bars_for_day_df, bar_top_diffs=bar_top_diffs)
-
-    range_pts = range_indices(day_bars_df=bars_for_day_df, bar_top_diffs=bar_top_diffs, resistance_start_end_pts=resist_pts)
-
-    valid_resist_bool = (range_pts[:, 0] != -1) & (range_pts[:, 1] != -1)
-
-    resist_slopes_data = resistance_slopes_data(bar_top_diffs=bar_top_diffs[valid_resist_bool], resistance_points=resist_pts[valid_resist_bool])
-
-    valid_range_pts = range_pts[valid_resist_bool]
-
-    valid_resist_area_pts = np.column_stack((resist_pts[valid_resist_bool][:, 0], valid_range_pts[:, 1]))
-
-    trade_df_btwn_range_pts = list(map(partial(trades_df_in_range, bars_for_day_df, trades_for_day_df), valid_range_pts))
-
-    trade_df_btwn_resist_pts = list(map(partial(trades_df_in_range, bars_for_day_df, trades_for_day_df), resist_pts[valid_resist_bool]))
-
-    trade_df_in_area = list(map(partial(trades_df_in_range, bars_for_day_df, trades_for_day_df), valid_resist_area_pts))
-
-    valid_resistance_levels =  bars_for_day_df["top"].values[valid_resist_bool]
-
-    moment_data = np.array(list(map(momentum_data, valid_resistance_levels, trade_df_in_area)))
+    bar_top_diffs = diff_matrix(matrix=bars_for_day['top'].values)
     
-    print(np.column_stack((
-        np.arange(valid_range_pts.shape[0]),
-        valid_range_pts,
-        valid_resistance_levels,
-        resist_slopes_data,
-        moment_data,
-        np.array([trade_df['price'].max() for trade_df in trade_df_btwn_range_pts])
-    )))
+    # Resistance start and end points for each bar.
+    # Type 2D np.array of [[int, int] ... [int, int]]
+    resist_pts = resistance_points(bars_for_day, bar_top_diffs)
 
-    return np.column_stack((resist_pts[valid_resist_bool], valid_resistance_levels, resist_slopes_data, moment_data))
+    # For each resistance line, points of where resistance line ends to first green breakout bar. 
+    # Type 2D np.array of [[int, int] ... [int, int]]
+    resist_endpt_to_brkout_ranges = resistance_endpoint_to_breakout_ranges(bars_for_day, bar_top_diffs, resist_pts)
 
-def resistance_centroids(bar_df: pd.DataFrame, trade_df: pd.DataFrame):
+    # Mask to filter out invalid resistance lines that may be
+    # due to either no such bar creating resistance endpoint 
+    # or no green bar surpassing the resistance line.
+    valid_resist_mask = (resist_endpt_to_brkout_ranges[:, 0] != -1) & (resist_endpt_to_brkout_ranges[:, 1] != -1)
 
-    bar_day_interv_df_list = non_empty_df_intervals(df=bar_df, interval="1D")
+    # Filter only valid resistance line points.
+    valid_resist_pts = resist_pts[valid_resist_mask]
 
-    trades_day_interv_df_list = non_empty_df_intervals(df=trade_df, interval="1D")
+    # Filter only ranges of valid resistance lines.
+    valid_resist_endpt_to_brkout_ranges = resist_endpt_to_brkout_ranges[valid_resist_mask]
+
+    # Filter only rows with valid resistances.
+    valid_bar_top_diffs = bar_top_diffs[valid_resist_mask]
+
+    resist_slopes_data = resistance_slopes(valid_bar_top_diffs, valid_resist_pts)
+
+    # Ranges from resistance line starting point to the first green breakout bar.
+    valid_resist_startpt_to_brkout_ranges = coalesce_ranges(valid_resist_pts, valid_resist_endpt_to_brkout_ranges)
+
+    # Retrieve trades between resistance starting point and first green breakout bar 
+    # for each valid resistance line. Type List of [df, ..., df].
+    trades_btwn_resist_startpt_and_brkout = trades_between_two_bars(bars_for_day, trades_for_day, valid_resist_startpt_to_brkout_ranges)
+
+    # Filter only resistance prices that mark valid resistances.
+    valid_resist_levels =  bars_for_day["top"].values[valid_resist_mask]
+
+    lower_resist_variance_data = np.array(list(map(lower_resistance_variance_data, valid_resist_levels, trades_btwn_resist_startpt_and_brkout)))
+
+    return np.column_stack((valid_resist_pts, valid_resist_levels, resist_slopes_data, lower_resist_variance_data))
+
+
+def resistance_centroids(bars: pd.DataFrame, trades: pd.DataFrame):
+
+    bar_day_interv_df_list = non_empty_df_intervals(df=bars, interval="1D")
+
+    trades_day_interv_df_list = non_empty_df_intervals(df=trades, interval="1D")
 
     data_generator = map(resistance_data, bar_day_interv_df_list, trades_day_interv_df_list)
 
@@ -409,17 +423,17 @@ def resistance_inference(centroids: np.array, resistance_data_for_day: np.array)
 
     return resistance_data_for_day[(labels==11)]
 
-def resistance_plot(bar_df: pd.DataFrame, trade_df: pd.DataFrame, centroids: np.array):
+def resistance_plot(bars: pd.DataFrame, trades: pd.DataFrame, centroids: np.array):
     
-    bar_day_interv_df_list = non_empty_df_intervals(df=bar_df, interval="1D")
+    bar_day_interv_df_list = non_empty_df_intervals(df=bars, interval="1D")
 
-    trades_day_interv_df_list = non_empty_df_intervals(df=trade_df, interval="1D")
+    trades_day_interv_df_list = non_empty_df_intervals(df=trades, interval="1D")
 
     data_generator = map(resistance_data, bar_day_interv_df_list, trades_day_interv_df_list)
 
     resistance_data_generator = map(partial(resistance_inference, centroids), data_generator)
 
-    list(map(lambda bar_df, data: plt.plot_resistances(bar_df, data[:,:2], data[:, 2]), bar_day_interv_df_list, resistance_data_generator))
+    list(map(lambda bars, data: plt.plot_resistances(bars, data[:,:2], data[:, 2]), bar_day_interv_df_list, resistance_data_generator))
 
 '''
 
@@ -439,17 +453,17 @@ average of the -second trade volume.
 '''
 
 
-data = top_slopes(bar_df=bar_df_)
+data = top_slopes(bars=bars_)
 
 centroids, labels = km.train(data=data, number_of_centroids=10, iteration=0, max_iterations=100)
 
 
 
-def resistance_levels(bar_df: pd.DataFrame, centroids: np.array) -> tuple[np.array, np.array]:
+def resistance_levels(bars: pd.DataFrame, centroids: np.array) -> tuple[np.array, np.array]:
 
-    n = len(bar_df['top'].values)
+    n = len(bars['top'].values)
 
-    top_diff_2d = diff_matrix(matrix=bar_df['top'].values)
+    top_diff_2d = diff_matrix(matrix=bars['top'].values)
 
     top_diffs = np.abs(top_diff_2d.flatten())
 
@@ -475,7 +489,7 @@ def resistance_levels(bar_df: pd.DataFrame, centroids: np.array) -> tuple[np.arr
 
     resistance_condition = (~cut_off_mask) & (upper_tri_mask) & (labels_2d == centroid_nearest_zero)
 
-    bar_tops = bar_df['top'].values
+    bar_tops = bars['top'].values
 
     bar_tops_tiled = np.tile(bar_tops, (n, 1)).T
 
@@ -533,9 +547,9 @@ def area_matrix(matrix: np.array) -> np.array:
 
 medium_five_minute_df = pd.read_csv('01_04_2024_to_01_05_2024_5M.csv', parse_dates=['timestamp'], index_col='timestamp')
 
-medium_five_minute_ohlctb_df = insert_top_bottom_columns(bar_df=medium_five_minute_df)
+medium_five_minute_ohlctb_df = insert_top_bottom_columns(bars=medium_five_minute_df)
 
-top_diffs = np.abs(top_differences(bar_df=medium_five_minute_ohlctb_df))
+top_diffs = np.abs(top_differences(bars=medium_five_minute_ohlctb_df))
 
 zeroes = np.zeros(top_diffs.shape[0])
 

@@ -215,7 +215,7 @@ def initialize_centroids(data: np.array, number_of_centroids: int) -> np.array:
 
 
 def initialize_centroids_helper(data: np.array, centroids: np.array, k: int, number_of_centroids: int) -> np.array:
-    plot(data=data, centroids=centroids)
+    # plot(data=data, centroids=centroids)
     if k == number_of_centroids:
         return  centroids
     
@@ -263,7 +263,7 @@ def train_helper(data: np.array, centroids: np.array, labels: np.array, iteratio
     # Train data by moving centroids until convergence or max_iterations is reached:
 
     if iteration == max_iterations:
-        plot_clusters(data=data, centroids=centroids, labels=labels, silhouette_score=1000)
+        plot_clusters(data=data, centroids=centroids, labels=labels)
         return centroids, labels
     
     new_centroids = move_centroids(data=data, labels=labels, new_centroids=np.empty((0, data.shape[1])), k=0, number_of_centroids=centroids.shape[0])
@@ -271,7 +271,7 @@ def train_helper(data: np.array, centroids: np.array, labels: np.array, iteratio
     new_labels = minimum_distance_indices(points_a=data, points_b=new_centroids, max_block_size=4000)
 
     if np.all(centroids == new_centroids): 
-        plot_clusters(data=data, centroids=new_centroids, labels=new_labels, silhouette_score=1000)
+        plot_clusters(data=data, centroids=new_centroids, labels=new_labels)
         return new_centroids, new_labels
 
     return train_helper(data=data, centroids=new_centroids, labels=new_labels, iteration=iteration+1, max_iterations=max_iterations)
@@ -365,10 +365,11 @@ def plot(data, centroids):
     plt.title('Select % d th centroid' % (centroids.shape[0]))
 
     plt.legend()
-    plt.xlim(-5, 12)
-    plt.ylim(-10, 15)
+    # plt.xlim(26,81)
+    # plt.ylim(-0.01, 0.01)
     plt.show()
 
+'''
 def plot_clusters(data: np.array, centroids: np.array, labels: np.array, silhouette_score: float):
 
     number_of_clusters = centroids.shape[0]
@@ -384,10 +385,46 @@ def plot_clusters(data: np.array, centroids: np.array, labels: np.array, silhoue
     plt.title(f"Clusters with a Silhouette Score of {silhouette_score}")
 
     plt.legend()
-    plt.xlim(-5, 20)
-    plt.ylim(-10, 15)
+    # plt.xlim(26,81)
+    # plt.ylim(-0.01, 0.01)
     plt.show()
 
-centroids, labels = train(data=data, number_of_centroids=5, iteration=0, max_iterations=100)
+'''
+
+def plot_clusters(data: np.array, centroids: np.array, labels: np.array):
+
+    number_of_clusters = centroids.shape[0]
+
+    colors = cm.rainbow(np.linspace(0, 1, number_of_clusters))
+
+    for k in range(centroids.shape[0]):
+        current_data_points = data[labels == k]
+        plt.scatter(current_data_points[:, 0], current_data_points[:, 1], marker='.', color=colors[k], label=f'cluster{k}')
+
+    plt.scatter(centroids[:, 0], centroids[:, 1], color='black', label='centroids')
+
+    plt.legend()
+
+    plt.show()
+
+
+def plot_clusters_3d(data: np.array, centroids: np.array, labels: np.array):
+
+    number_of_clusters = centroids.shape[0]
+
+    colors = cm.rainbow(np.linspace(0, 1, number_of_clusters))
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    for k in range(number_of_clusters):
+        current_data_points = data[labels == k]
+        ax.scatter(current_data_points[:, 0], current_data_points[:, 1], current_data_points[:, 2], marker='.', c=[colors[k]], label=f'cluster{k}')
+
+    ax.scatter(centroids[:, 0], centroids[:, 1], centroids[:, 2], color='black', label='centroids')
+
+    ax.legend()
+    plt.show()
+# centroids, labels = train(data=data, number_of_centroids=5, iteration=0, max_iterations=100)
 
 
