@@ -12,7 +12,23 @@ def time_based_partition(df: pd.DataFrame, interval: str) -> list[pd.DataFrame]:
 
     partition_generator = map(lambda df_pair: df_pair[1], df.resample(interval))
 
-    return list(filter(lambda df_interval: not df_interval.dropna().empty, partition_generator))
+    non_empty_partition = filter(lambda df_interval: not df_interval.dropna().empty, partition_generator)
+
+    return list(non_empty_partition)
+
+def time_based_column_partition(df: pd.DataFrame, interval: str, col: str) -> list[NDArray[np.any]]:
+    '''
+    Partition a single dataframe's column into a list of NDArrays based on the given time interval.
+
+    Parameters: a time-series dataframe df, string interval for partioning, and string col which
+        is the name of the target column in the dataframe.
+    
+    Output: a list of NDArrays s.t. each NDArray contains values from the column col within the
+        corresponding time interval.
+    '''
+    col_partition_generator = map(lambda part_df: part_df[col].values, time_based_partition(df, interval))
+
+    return list(col_partition_generator)
 
 def partition_trades(trades: pd.DataFrame, interval: str) -> list[pd.DataFrame]:
     # Partition trades dataframe into a list of dataframes based on time interval.
@@ -190,23 +206,26 @@ def apply_upper_matrix_tri(f: Callable[[NDArray[np.any]], NDArray[np.any]], arra
 
     return f(array)[upper_row, upper_col]
 
+def for_each(f: Callable[[any], any], array: list[any]) -> NDArray[np.any]:
+    '''
+    Apply function f on each element in array.
 
-def apply_for_each_day(f: Callable[[NDArray[np.any]], NDArray[np.any]], df: pd.DataFrame, col: str) -> np.array:
+    Parameters: Function f consisting of one parameter. A list of any element.
+        Function f must take elements in array as inputs.
 
-    day_partition = time_based_partition(df, "1D")
-    
-    array_generator = map(lambda part_df: f(part_df[col].values), day_partition)
+    Output: an NDArray of results from f.
+    '''
+    array_generator = map(f, array)
 
     return reduce(lambda acc, x: np.append(acc, x), array_generator, np.array([]))
-
 
 
 bars_ = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
 
 bars = append_top_bottom_columns(bars_)
 
-bar_tops = bars['top'].values
+bar_top_values =  time_based_column_partition(bars, '1D', 'top')
+bar_top_diffs = for_each(partial(apply_upper_matrix_tri, partial(distance_matrix_1d, euclidean_distances_1d)), bar_top_values)
 
-bar_top_diffs = apply_for_each_day(partial(apply_upper_matrix_tri, partial(distance_matrix_1d, euclidean_distances_1d)), bars, 'top')
 print(bar_top_diffs.shape)
 print(bar_top_diffs)
