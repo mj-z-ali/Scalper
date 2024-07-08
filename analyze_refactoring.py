@@ -20,11 +20,13 @@ def time_based_column_partition(df: pd.DataFrame, interval: str, col: str) -> li
     '''
     Partition a single dataframe's column into a list of NDArrays based on the given time interval.
 
-    Parameters: a time-series dataframe df, string interval for partioning, and string col which
-        is the name of the target column in the dataframe.
+    Parameters: 
+    a time-series dataframe df, string interval for partioning, and string col which
+    is the name of the target column in the dataframe.
     
-    Output: a list of NDArrays s.t. each NDArray contains values from the column col within the
-        corresponding time interval.
+    Output: 
+    a list of NDArrays s.t. each NDArray contains values from the column col within the
+    corresponding time interval.
     '''
     col_partition_generator = map(lambda part_df: part_df[col].values, time_based_partition(df, interval))
 
@@ -120,8 +122,9 @@ def euclidean_distances_1d(points_a: NDArray[np.float64], points_b: NDArray[np.f
     '''
     Euclidean distance of 1-dimensional points.
 
-    Parameters: points_a and points_b of (n,) or (1,n) NDArrays s.t.
-        n is the number of points in each.
+    Parameters: 
+    points_a and points_b of (n,) or (1,n) NDArrays s.t.
+    n is the number of points in each.
 
     Output: n-array of euclidean distances for corresponding point pairs.
     '''
@@ -133,7 +136,7 @@ def euclidean_distances_xd(points_a: NDArray[np.float64], points_b: NDArray[np.f
     Euclidean distance of d-dimensional points s.t. d > 1.
 
     Parameters: points_a and points_b of (n,d) NDArrays s.t.
-        n is the number of points in each and d is the dimension where d > 1.
+    n is the number of points in each and d is the dimension where d > 1.
 
     Output: n-array of euclidean distances for corresponding point pairs.
     '''
@@ -144,8 +147,9 @@ def distance_matrix_1d(distance_function: Callable[[NDArray[np.float64], NDArray
     '''
     Distance of 1d points where distance formula is defined by input function.
 
-    Parameters: distance_function to compute distance formula on points.
-        points of (n,) or (1,n) NDarray of n points.
+    Parameters: 
+    distance_function to compute distance formula on points.
+    points of (n,) or (1,n) NDarray of n points.
 
     Output: (n,n) matrix of euclidean distances for all point pairs.
     '''
@@ -178,10 +182,10 @@ def perc_diff_matrix_1d(array: NDArray[np.float64]) -> NDArray[np.float64]:
 def k_root_mean_sqr_dev_1d(array: NDArray[np.float64], k: int, a: float) -> NDArray[np.float64]:
     '''
     Calculates the k-root of the average of the squared differences 
-        between each data point in array and the specified value a.
+    between each data point in array and the specified value a.
 
-    Parameters: array of (n,) or (1,n) NDArray,
-        k for k-root, and specified value a.
+    Parameters: 
+    array of (n,) or (1,n) NDArray, k for k-root, and specified value a.
 
     Output: n-array of k-RMSD values from specied value a.
     '''
@@ -192,13 +196,15 @@ def k_root_mean_sqr_dev_1d(array: NDArray[np.float64], k: int, a: float) -> NDAr
 def apply_upper_matrix_tri(f: Callable[[NDArray[np.any]], NDArray[np.any]], array: NDArray[np.any]) -> NDArray[np.any]:
     '''
     Applies function f on NDArray array but return only the upper triangle of 
-        the resulting matrix from f.
+    the resulting matrix from f.
 
-    Parameter: Function f to be applied on (n,) NDArray array. Function f must input
-        an NDArray and output a (n,n) square matrix. 
+    Parameter: 
+    Function f to be applied on (n,) NDArray array. Function f must input
+    an NDArray and output a (n,n) square matrix. 
 
-    Output: A (c,) NDArray containing the values in the upper triange, excluding the diagonal,
-        of the resulting matrix of f(array) s.t. c = (n*(n-1)) / 2
+    Output: 
+    A (c,) NDArray containing the values in the upper triange, excluding the diagonal,
+    of the resulting matrix of f(array) s.t. c = (n*(n-1)) / 2
     '''
     n = len(array)
 
@@ -210,8 +216,9 @@ def for_each(f: Callable[[any], any], array: list[any]) -> NDArray[np.any]:
     '''
     Apply function f on each element in array.
 
-    Parameters: Function f consisting of one parameter. A list of any element.
-        Function f must take elements in array as inputs.
+    Parameters: 
+    Function f consisting of one parameter. A list of any element.
+    Function f must take elements in array as inputs.
 
     Output: an NDArray of results from f.
     '''
@@ -219,6 +226,37 @@ def for_each(f: Callable[[any], any], array: list[any]) -> NDArray[np.any]:
 
     return reduce(lambda acc, x: np.append(acc, x), array_generator, np.array([]))
 
+def compose_functions(functions: list[Callable[[Callable, np.any], np.any]]) -> Callable[[np.any], np.any]:
+    '''
+    Transforms a sequence of functions into a single function with one parameter that would
+    have otherwise been a nested chain of function calls with the pattern f(g(h(...)), a)
+    s.t.  f,g, and h are functions. In other words, something of the form f(g(h(...)), a) 
+    now becomes lambda a : f(g(h(...)), a)
+
+    Parameters: 
+    list of functions with two parameters; the first being another function of the same
+    pattern and the second parameter being any value as long as it is acceptable to the 
+    passing funcion. A slight caveat; The final function in the  list need not to follow 
+    the same structure. However, it will be called in the second-to-last function and it 
+    must adhere to how it is used there. List must have a length of ≥ 2
+
+    Output: a function of the form lambda x : f(g(h(...)), x).
+
+    Example Usage: The following chain of functions:
+
+    >> for_each(partial(apply_upper_matrix_tri, partial(distance_matrix_1d, euclidean_distances_1d)), bar_top_values)
+
+    Now becomes:
+
+    >> dist_funct = compose_functions([for_each, apply_upper_matrix_tri, distance_matrix_1d, euclidean_distances_1d])
+
+    >> dist_funct(bar_top_values)
+
+    '''
+    if len(functions) == 2:
+        return lambda array : functions[0](functions[1], array)
+    else:
+        return lambda array : functions[0](compose_functions(functions[1:]), array)
 
 bars_ = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
 
@@ -227,5 +265,9 @@ bars = append_top_bottom_columns(bars_)
 bar_top_values =  time_based_column_partition(bars, '1D', 'top')
 bar_top_diffs = for_each(partial(apply_upper_matrix_tri, partial(distance_matrix_1d, euclidean_distances_1d)), bar_top_values)
 
-print(bar_top_diffs.shape)
-print(bar_top_diffs)
+
+dist_funct = compose_functions([for_each, apply_upper_matrix_tri, distance_matrix_1d, euclidean_distances_1d])
+
+print(dist_funct(bar_top_values))
+
+
