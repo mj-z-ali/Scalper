@@ -123,61 +123,100 @@ def euclidean_distances_1d(points_a: NDArray[np.float64], points_b: NDArray[np.f
     Euclidean distance of 1-dimensional points.
 
     Parameters: 
-    points_a and points_b of (n,) or (1,n) NDArrays s.t.
-    n is the number of points in each.
+    points_a and points_b are (n,) or (1, n) NDArray of n points.
+    If either points_a or points_b are transposed as (n,1), then 
+    the result is euclidean distances of points(i) to points.T(j) 
+    for all i,j, instead.
 
-    Output: n-array of euclidean distances for corresponding point pairs.
+    Output: 
+    either n-array or (n,n) matrix of euclidean distances depending 
+    on one of the parameters being transposed.
     '''
     
     return np.abs(points_a - points_b)
 
 def euclidean_distances_xd(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
     '''
-    Euclidean distance of d-dimensional points s.t. d > 1.
+    Euclidean distance of points_a(i) and points_b(j) for all i,j
+    of d-dimensional points s.t. d > 1.
+    
 
-    Parameters: points_a and points_b of (n,d) NDArrays s.t.
+    Parameters: 
+    points_a of (n,d) NDArrays and points_b of (n,1,d) s.t.
     n is the number of points in each and d is the dimension where d > 1.
+    If either one of the parameters are reshaped as (n,1,d), then result 
+    is a 
 
-    Output: n-array of euclidean distances for corresponding point pairs.
+    Output: 
+    (n,n) matrix of euclidean distances.
     '''
     
     return np.sqrt(np.sum((points_a - points_b)**2, axis=2))
 
-def distance_matrix_1d(distance_function: Callable[[NDArray[np.float64], NDArray[np.float64]], NDArray[np.float64]], points: NDArray[np.float64]) -> NDArray[np.float64]:
+def matrix_operation_1d(f: Callable[[NDArray[np.any], NDArray[np.any]], NDArray[np.any]], array: NDArray[np.any]) -> NDArray[np.any]:
     '''
-    Distance of 1d points where distance formula is defined by input function.
+    Apply some function f on NDArray of (n,) or (1,n).
 
     Parameters: 
-    distance_function to compute distance formula on points.
-    points of (n,) or (1,n) NDarray of n points.
+    funtion f with two NDArray parameters that should output
+    a matrix when one parameter is transposed.
+    array of (n,) or (1,n) NDarray.
 
-    Output: (n,n) matrix of euclidean distances for all point pairs.
+    Output: f matrix output of (n,n).
     '''
-    points_t = transpose_1d(points)
+    array_t = transpose_1d(array)
 
-    return distance_function(points_t, points)
+    return f(array_t, array)
 
-def distance_matrix_xd(distance_function: Callable[[NDArray[np.float64], NDArray[np.float64]], NDArray[np.float64]], points: NDArray[np.float64]) -> NDArray[np.float64]:
+def matrix_operation_xd(f: Callable[[NDArray[np.any], NDArray[np.any]], NDArray[np.any]], array: NDArray[np.any]) -> NDArray[np.any]:
     '''
-    Distances of d-dimensional points s.t. d > 1 where distance formula is defined by input function.
+    Apply function f on NDArray of (n,d) s.t. d > 1.
 
-    Parameters: (n,d)  NDArray of n points with dimension d > 1.
+    Parameters: 
+    function f with two NDArray parameters that should output
+    a matrix when one parameter is reshaped to (n,1,d)
+    (n,d)  NDArray of n elements with dimension d > 1.
 
-    Output: (n,n) matrix of euclidean distances for all point pairs.
+    Output: f matrix output of (n,n).
     '''
-    points_t = transpose_xd(points)
+    array_t = transpose_xd(array)
 
-    return distance_function(points_t, points)
+    return f(array_t, array)
 
-def perc_diff_matrix_1d(array: NDArray[np.float64]) -> NDArray[np.float64]:
+def relative_perc_1d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
     '''
-    Relative difference of all element pairs in array.
+    Relative differences of points_b(i) to points_a(i) for all i.
 
-    Parameters: (n,) or (1, n) NDArray of n points.
+    Parameters: 
+    points_a and points_b are (n,) or (1, n) NDArray of n points.
+    If either points_a or points_b are transposed as (n,1), then 
+    the result is relative differences of points.T(j) to points(i) 
+    for all i,j, instead.
 
-    Output: (n,n) matrix of percentage differences for all element pairs.
+    Output: 
+    either n-array or (n,n) matrix depending on one of the parameters 
+    being transposed.
     '''
-    return distance_matrix_1d(lambda p1, p2: 100*(p1 - p2) / p1, array)
+    return 100*(points_a - points_b) / points_a
+
+def slopes_2d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
+    '''
+    (y2-y1) / (x2-x1) s.t. x1,y1 are points in points_a and x2,y2 are in points_b array.
+
+    Parameters:
+    (n,2) and (n,1,2) for points_a and points_b, respectively.
+
+    Output:
+    (n,n) slope matrix for all point pairs. Divide-by-zero is an undefined slope
+    and should be ignored in resulting matrix. For instance, in the case where
+    points_a and points_b are the same set of points, the diagonal should be 
+    ignored.
+    '''
+    diff = points_a - points_b
+
+    x_pts, y_pts = diff[:,:,0], diff[:,:,1]
+
+    return np.divide(y_pts, x_pts, where=x_pts!=0)
 
 def k_root_mean_sqr_dev_1d(array: NDArray[np.float64], k: int, a: float) -> NDArray[np.float64]:
     '''
@@ -220,11 +259,20 @@ def for_each(f: Callable[[any], any], array: list[any]) -> NDArray[np.any]:
     Function f consisting of one parameter. A list of any element.
     Function f must take elements in array as inputs.
 
-    Output: an NDArray of results from f.
+    Output: an NDArray of results from f on each element in array.
     '''
     array_generator = map(f, array)
-
+    return np.array(list(array_generator))
     return reduce(lambda acc, x: np.append(acc, x), array_generator, np.array([]))
+
+def flatten(array: NDArray[np.any]) -> NDArray[np.any]:
+    '''
+    Flatten multi-dimensional array to 1 dimensional (n,).
+
+    Output: (n,) NDArray s.t. n is the number of elements in array.
+    '''
+    return reduce(lambda acc, x: np.append(acc, x), array, np.array([]))
+
 
 def compose_functions(functions: list[Callable[[Callable, np.any], np.any]]) -> Callable[[np.any], np.any]:
     '''
@@ -234,7 +282,7 @@ def compose_functions(functions: list[Callable[[Callable, np.any], np.any]]) -> 
     now becomes lambda a : f(g(h(...)), a)
 
     Parameters: 
-    list of functions with two parameters; the first being another function of the same
+    list of functions each with two parameters; the first being another function of the same
     pattern and the second parameter being any value as long as it is acceptable to the 
     passing funcion. A slight caveat; The final function in the  list need not to follow 
     the same structure. However, it will be called in the second-to-last function and it 
@@ -263,11 +311,72 @@ bars_ = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestam
 bars = append_top_bottom_columns(bars_)
 
 bar_top_values =  time_based_column_partition(bars, '1D', 'top')
-bar_top_diffs = for_each(partial(apply_upper_matrix_tri, partial(distance_matrix_1d, euclidean_distances_1d)), bar_top_values)
+
+euclid_dist_1d = compose_functions([for_each, apply_upper_matrix_tri, matrix_operation_1d, euclidean_distances_1d])
+
+print(f"euclidean dist {euclid_dist_1d(bar_top_values)}")
+print(euclid_dist_1d(bar_top_values).shape)
+
+perc_diff_1d = compose_functions([for_each, apply_upper_matrix_tri, matrix_operation_1d, relative_perc_1d])
+
+perc_diff_top_vals = perc_diff_1d(bar_top_values)
+print(f"perc diff {perc_diff_top_vals}")
+print(perc_diff_top_vals.shape)
+
+indices_mat = euclid_dist_1d(for_each(lambda t: np.arange(t.shape[0]),bar_top_values))
+
+perc_slope = perc_diff_top_vals / indices_mat
 
 
-dist_funct = compose_functions([for_each, apply_upper_matrix_tri, distance_matrix_1d, euclidean_distances_1d])
+print(indices_mat)
 
-print(dist_funct(bar_top_values))
+top_diffs_2d = for_each(lambda t: np.column_stack((t,np.arange(t.shape[0]))),bar_top_values)
 
+euclid_dist_2d = compose_functions([for_each, apply_upper_matrix_tri, matrix_operation_xd, euclidean_distances_xd])
+
+print(f"euclid dist 2d {euclid_dist_2d(top_diffs_2d)}")
+print(euclid_dist_2d(top_diffs_2d).shape)
+
+slopes = compose_functions([for_each, apply_upper_matrix_tri, matrix_operation_xd, slopes_2d])
+
+print(f"slopes {slopes(top_diffs_2d)}")
+print(slopes(top_diffs_2d).shape)
+
+
+def diff_matrix(matrix: np.array) -> np.array:
+
+    n = len(matrix)
+
+    matrix_reshaped = matrix.reshape((n, 1))
+
+    diff_matrix = 100*(matrix_reshaped - matrix_reshaped.T) / matrix_reshaped
+
+    return diff_matrix
+
+def top_slopes_day(bars_for_day: pd.DataFrame) -> np.array:
+
+    n = len(bars_for_day['top'].values)
+
+    # Upper triangle indices excluding diagonal since it and the lower part 
+    # is relationship of bar to itself and past bars.
+    upper_row, upper_col = np.triu_indices(n=n, k=1)
+
+    # Percentage differences of bar top to all others.
+    diff_mat = diff_matrix(matrix=bars_for_day['top'].values)[upper_row, upper_col]
+
+    indices = np.arange(n).reshape(1,n)
+
+    # Line lengths in units of bars. Bar top to all other bar top distances.
+    lengths = (indices - indices.T)[upper_row, upper_col]
+
+    slopes = diff_mat / lengths
+
+    return slopes
+
+top_slopes = for_each(top_slopes_day, time_based_partition(bars,"1D"))
+
+print(f"top slopes {top_slopes}")
+print(f"top slopes {top_slopes.shape}")
+
+print(np.all(perc_slope==top_slopes))
 
