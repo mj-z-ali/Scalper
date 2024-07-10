@@ -166,7 +166,7 @@ def matrix_operation_1d(f: Callable[[NDArray[np.any], NDArray[np.any]], NDArray[
     '''
     array_t = transpose_1d(array)
 
-    return f(array_t, array)
+    return f(array, array_t)
 
 def matrix_operation_xd(f: Callable[[NDArray[np.any], NDArray[np.any]], NDArray[np.any]], array: NDArray[np.any]) -> NDArray[np.any]:
     '''
@@ -181,7 +181,7 @@ def matrix_operation_xd(f: Callable[[NDArray[np.any], NDArray[np.any]], NDArray[
     '''
     array_t = transpose_xd(array)
 
-    return f(array_t, array)
+    return f(array, array_t)
 
 def relative_perc_1d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
     '''
@@ -262,8 +262,8 @@ def for_each(f: Callable[[any], any], array: list[any]) -> NDArray[np.any]:
     Output: an NDArray of results from f on each element in array.
     '''
     array_generator = map(f, array)
+    
     return np.array(list(array_generator))
-    return reduce(lambda acc, x: np.append(acc, x), array_generator, np.array([]))
 
 def flatten(array: NDArray[np.any]) -> NDArray[np.any]:
     '''
@@ -327,10 +327,10 @@ indices_mat = euclid_dist_1d(for_each(lambda t: np.arange(t.shape[0]),bar_top_va
 
 perc_slope = perc_diff_top_vals / indices_mat
 
+print(f"perc slope {perc_slope}")
+print(perc_slope.shape)
 
-print(indices_mat)
-
-top_diffs_2d = for_each(lambda t: np.column_stack((t,np.arange(t.shape[0]))),bar_top_values)
+top_diffs_2d = for_each(lambda t: np.column_stack((np.arange(t.shape[0]),t)),bar_top_values)
 
 euclid_dist_2d = compose_functions([for_each, apply_upper_matrix_tri, matrix_operation_xd, euclidean_distances_xd])
 
@@ -343,40 +343,5 @@ print(f"slopes {slopes(top_diffs_2d)}")
 print(slopes(top_diffs_2d).shape)
 
 
-def diff_matrix(matrix: np.array) -> np.array:
 
-    n = len(matrix)
-
-    matrix_reshaped = matrix.reshape((n, 1))
-
-    diff_matrix = 100*(matrix_reshaped - matrix_reshaped.T) / matrix_reshaped
-
-    return diff_matrix
-
-def top_slopes_day(bars_for_day: pd.DataFrame) -> np.array:
-
-    n = len(bars_for_day['top'].values)
-
-    # Upper triangle indices excluding diagonal since it and the lower part 
-    # is relationship of bar to itself and past bars.
-    upper_row, upper_col = np.triu_indices(n=n, k=1)
-
-    # Percentage differences of bar top to all others.
-    diff_mat = diff_matrix(matrix=bars_for_day['top'].values)[upper_row, upper_col]
-
-    indices = np.arange(n).reshape(1,n)
-
-    # Line lengths in units of bars. Bar top to all other bar top distances.
-    lengths = (indices - indices.T)[upper_row, upper_col]
-
-    slopes = diff_mat / lengths
-
-    return slopes
-
-top_slopes = for_each(top_slopes_day, time_based_partition(bars,"1D"))
-
-print(f"top slopes {top_slopes}")
-print(f"top slopes {top_slopes.shape}")
-
-print(np.all(perc_slope==top_slopes))
 
