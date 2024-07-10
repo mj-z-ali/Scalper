@@ -98,123 +98,129 @@ def append_top_bottom_columns(bars: pd.DataFrame) -> pd.DataFrame:
     # Create a new dataframe with the new columns.
     return bars.assign(red=new_cols[0], top=new_cols[1], bottom=new_cols[2])
 
-def transpose_1d(array: NDArray[np.any]) -> NDArray[np.any]:
+def transpose_array(array: NDArray[np.any]) -> NDArray[np.any]:
     '''
-    Transpose a row array into a column array for broadcasting.
+    Transpose an NDArray for broadcasting.
 
     Parameters: (n,) or (1,n) NDArray.
 
-    Output: (n,1) column NDArray.
+    Output: (n,1) NDArray.
     '''
     return array.reshape(-1, 1)
 
-def transpose_xd(matrix: NDArray[np.any]) -> NDArray[np.any]:
+def transpose_matrix(matrix: NDArray[np.any]) -> NDArray[np.any]:
     '''
     Transpose a matrix onto a new axis for broadcasting.
 
     Parameters: (n,d) NDArray.
 
-    Output: (n,1,d) column NDArray.
+    Output: (n,1,d) NDArray.
     '''
     return matrix[:, np.newaxis, :]
 
-def euclidean_distances_1d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
+def matrix_operation_1d(f: Callable[[NDArray[np.any], NDArray[np.any]], NDArray[np.any]], array: NDArray[np.any]) -> NDArray[np.any]:
     '''
-    Euclidean distance of 1-dimensional points.
+    Apply some matrix function f on NDArray of (n,) or (1,n).
 
     Parameters: 
-    points_a and points_b are (n,) or (1, n) NDArray of n points.
-    If either points_a or points_b are transposed as (n,1), then 
-    the result is euclidean distances of points(i) to points.T(j) 
-    for all i,j, instead.
+    funtion f of type f(arr_0, arr_1) -> NDArray(n,n) s.t.
+    arr_0 is of type NDArray(n,) or NDArray(1,n)  and arr_1
+    is of type NDArray(n,1).
+    NDarray array of type (n,) or (1,n).
+
+    Output: f matrix output of NDArray(n,n).
+    '''
+    array_t = transpose_array(array)
+
+    return f(array, array_t)
+
+def matrix_operation_xd(f: Callable[[NDArray[np.any], NDArray[np.any]], NDArray[np.any]], matrix: NDArray[np.any]) -> NDArray[np.any]:
+    '''
+    Apply some matrix function f on NDArray of (n,d) s.t. d > 1.
+
+    Parameters: 
+    function f of type f(NDArray(n,d), NDArray(n,1,d)) -> NDArray(n,n) s.t.
+    d > 1. 
+    NDArray array of type NDArray(n,d) s.t. d > 1.
+
+    Output: f matrix output of NDArray(n,n).
+    '''
+    matrix_t = transpose_matrix(matrix)
+
+    return f(matrix, matrix_t)
+
+def euclidean_distances_1d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
+    '''
+    Euclidean distance of 1-dimensional points_a(i) to points_b(i) for 
+    all i. If points_a and points_b are of differenct shape, then the 
+    function produces Euclidean distances for all point pairs.
+
+    Parameters: 
+    points_a and points_b of n and m 1-dimensional points, respectively.
+    If points_a and points_b are of differenct shape, then n=m.
 
     Output: 
     either n-array or (n,n) matrix of euclidean distances depending 
-    on one of the parameters being transposed.
+    on points_a and points_b being of same shape or not.
     '''
     
     return np.abs(points_a - points_b)
 
 def euclidean_distances_xd(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
     '''
-    Euclidean distance of points_a(i) and points_b(j) for all i,j
-    of d-dimensional points s.t. d > 1.
+    Euclidean distances of points_a(i) to points_b(i) for all i
+    of d-dimensional points s.t. d > 1. If points_a and points_b
+    are of different shapes, ie. (n,d) and (m,1,d), then the function 
+    produces the euclidean distances of points_a(i) to points_b(j) for 
+    all i,j (all possible pair of points).
     
 
     Parameters: 
-    points_a of (n,d) NDArrays and points_b of (n,1,d) s.t.
-    n is the number of points in each and d is the dimension where d > 1.
-    If either one of the parameters are reshaped as (n,1,d), then result 
-    is a 
+    points_a and points_b NDArrays of n and m d-dimensional points, respectively,
+    s.t. d > 1. If points_a and points_b are the same shape, n=m.
 
     Output: 
-    (n,n) matrix of euclidean distances.
+    Either n-array or (n,m) matrix of euclidean distances depending on whether
+    points_a and points_b are of same shape or not.
     '''
     
-    return np.sqrt(np.sum((points_a - points_b)**2, axis=2))
-
-def matrix_operation_1d(f: Callable[[NDArray[np.any], NDArray[np.any]], NDArray[np.any]], array: NDArray[np.any]) -> NDArray[np.any]:
-    '''
-    Apply some function f on NDArray of (n,) or (1,n).
-
-    Parameters: 
-    funtion f with two NDArray parameters that should output
-    a matrix when one parameter is transposed.
-    array of (n,) or (1,n) NDarray.
-
-    Output: f matrix output of (n,n).
-    '''
-    array_t = transpose_1d(array)
-
-    return f(array, array_t)
-
-def matrix_operation_xd(f: Callable[[NDArray[np.any], NDArray[np.any]], NDArray[np.any]], array: NDArray[np.any]) -> NDArray[np.any]:
-    '''
-    Apply function f on NDArray of (n,d) s.t. d > 1.
-
-    Parameters: 
-    function f with two NDArray parameters that should output
-    a matrix when one parameter is reshaped to (n,1,d)
-    (n,d)  NDArray of n elements with dimension d > 1.
-
-    Output: f matrix output of (n,n).
-    '''
-    array_t = transpose_xd(array)
-
-    return f(array, array_t)
+    return np.sqrt(np.sum((points_a - points_b)**2, axis=-1))
 
 def relative_perc_1d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
     '''
     Relative differences of points_b(i) to points_a(i) for all i.
+    If points_a and points_b are different shape, ie. (n,) and (n,1),
+    then relative differences of points_b(j) to points_a(i) for all i,j.
 
     Parameters: 
-    points_a and points_b are (n,) or (1, n) NDArray of n points.
-    If either points_a or points_b are transposed as (n,1), then 
-    the result is relative differences of points.T(j) to points(i) 
-    for all i,j, instead.
+    points_a and points_b NDArrays of n and m points, respectively.
+    If different shape, then n=m.
 
     Output: 
-    either n-array or (n,n) matrix depending on one of the parameters 
-    being transposed.
+    either n-array or (n,m) matrix depending points_a and points_b
+    being same shape or not.
     '''
     return 100*(points_a - points_b) / points_a
 
 def slopes_2d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
     '''
-    (y2-y1) / (x2-x1) s.t. x1,y1 are points in points_a and x2,y2 are in points_b array.
+    (y2-y1) / (x2-x1) s.t. x1,y1 are points in points_a and x2,y2 are in points_b array,
+    for points_a(i) and points_b(i) for all i. If parameters are of different shape, 
+    ie. (n,2) and (n,1,2), then produce slopes for all possible point pairs.
 
     Parameters:
-    (n,2) and (n,1,2) for points_a and points_b, respectively.
+    n and m 2-dimensional points for points_a and points_b, respectively.
+    If parameters are same shape, then n=m.
 
     Output:
-    (n,n) slope matrix for all point pairs. Divide-by-zero is an undefined slope
-    and should be ignored in resulting matrix. For instance, in the case where
-    points_a and points_b are the same set of points, the diagonal should be 
-    ignored.
+    n-array or (n,m) slope matrix depending on whether parameters are same shape 
+    or not. Divide-by-zero is an undefined slope and should be ignored in resulting
+    matrix. For instance, in the case where points_a and points_b are the same set 
+    of points, the diagonal should be ignored.
     '''
     diff = points_a - points_b
 
-    x_pts, y_pts = diff[:,:,0], diff[:,:,1]
+    x_pts, y_pts = diff[...,0], diff[...,1]
 
     return np.divide(y_pts, x_pts, where=x_pts!=0)
 
@@ -262,7 +268,7 @@ def for_each(f: Callable[[any], any], array: list[any]) -> NDArray[np.any]:
     Output: an NDArray of results from f on each element in array.
     '''
     array_generator = map(f, array)
-    
+
     return np.array(list(array_generator))
 
 def flatten(array: NDArray[np.any]) -> NDArray[np.any]:
@@ -341,6 +347,8 @@ slopes = compose_functions([for_each, apply_upper_matrix_tri, matrix_operation_x
 
 print(f"slopes {slopes(top_diffs_2d)}")
 print(slopes(top_diffs_2d).shape)
+
+# def green_breakout(relational_matrix: NDArray[np.float64]):
 
 
 
