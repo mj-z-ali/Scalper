@@ -311,6 +311,84 @@ def compose_functions(functions: list[Callable[[Callable, np.any], np.any]]) -> 
         return lambda array : functions[0](functions[1], array)
     else:
         return lambda array : functions[0](compose_functions(functions[1:]), array)
+    
+def upper_matrix_tri_mask(shape: tuple[int,...]) -> NDArray[np.bool_]:
+    '''
+    Mask of upper triangle excluding the diagonal of a square matrix.
+
+    Parameters: a Tuple(n,n) denoting the shape of the matrix.
+
+    Output: Boolean (n,n) matrix where only upper triangle is set to True.
+    '''
+    return np.triu(np.ones(shape, dtype=bool), k=1)
+
+def row_indices(matrix: NDArray[np.any]) -> NDArray[np.int64]:
+    '''
+    Row indices of a 2D matrix.
+
+    Parameters: NDArray(n,m)
+
+    Output: NDArray(n,)
+    '''
+
+    return np.arange(matrix.shape[1])
+
+def column_indices(matrix: NDArray[np.any]) -> NDArray[np.int64]:
+    '''
+    Column indices of a 2D matrix.
+
+    Parameters: NDArray(n,m)
+
+    Output: NDArray(m,)
+    '''
+
+    return np.arange(matrix.shape[1])
+
+def first_occurence_indices(mask_matrix: NDArray[np.bool_]) -> NDArray[np.int64]:
+    '''
+    Indices of the first Truth value in each row of a 2D boolean matrix.
+
+    Parameters: NDArray(n,m) boolean matrix.
+
+    Outputs: NDArray(n,). If no Truth value is found in a row, m is the result
+    rather than the index.
+    '''
+
+    first_true_indices = np.argmax(mask_matrix, axis=1)
+
+    return np.where((first_true_indices == 0) & ~mask_matrix[:, 0], mask_matrix.shape[1], first_true_indices)
+
+def first_occurence_mask(mask_matrix: NDArray[np.bool_]) -> NDArray[np.bool_]:
+    '''
+    Set all boolean values to False except the first Truth value in each
+    row of a boolean matrix.
+
+    Parameters: a boolean matrix of NDArray(n,m)
+
+    Output: a (n,m) boolean matrix where only the first Truth value in each
+    row is left alone and all else is set to False.
+    '''
+    return column_indices(mask_matrix) == first_occurence_indices(mask_matrix)[:, None]
+
+def first_green_breakouts(relational_matrix: NDArray[np.float64], green_bar_mask: NDArray[np.bool_])  -> NDArray[np.bool_]:
+    '''
+    Mask of first green breakout bars occuring after diagonal in relational_matrix.
+
+    Parameters:
+    relational_matrix of NDArray(n,n) s.t. values are some relational value of all bar
+    pairs in an n-array of bars. A relational value of > 0 must indicate bar y is greater
+    than bar x for relational_matrix(x,y).
+    green_bar_mask of NDArray(n,) consisting of boolean values where true indicates bar is
+    green.
+
+    Output: An (n,n) matrix of boolean values where each row has a single True value
+    representing the first green breakout bar.
+    '''
+
+    green_breakouts = (relational_matrix > 0) & upper_matrix_tri_mask(relational_matrix.shape) & green_bar_mask
+
+    return first_occurence_mask(green_breakouts)
+
 
 bars_ = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
 
@@ -343,13 +421,16 @@ euclid_dist_2d = compose_functions([for_each, apply_upper_matrix_tri, matrix_ope
 print(f"euclid dist 2d {euclid_dist_2d(top_diffs_2d)}")
 print(euclid_dist_2d(top_diffs_2d).shape)
 
-slopes = compose_functions([for_each, apply_upper_matrix_tri, matrix_operation_xd, slopes_2d])
+slopes = compose_functions([for_each, matrix_operation_xd, slopes_2d])
 
 print(f"slopes {slopes(top_diffs_2d)}")
 print(slopes(top_diffs_2d).shape)
 
-# def green_breakout(relational_matrix: NDArray[np.float64]):
-
+bar_dfs = time_based_partition(bars,"1D")
+first_bar_df = bar_dfs[0]
+first_bar_df_green_mask = ~first_bar_df['red'].values
+first_brkout = first_green_breakouts(slopes(top_diffs_2d)[0], first_bar_df_green_mask)
+print(np.argmax(first_brkout, axis=1))
 
 
 
