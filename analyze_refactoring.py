@@ -370,24 +370,28 @@ def first_occurence_mask(mask_matrix: NDArray[np.bool_]) -> NDArray[np.bool_]:
     '''
     return column_indices(mask_matrix) == first_occurence_indices(mask_matrix)[:, None]
 
-def first_green_breakouts(relational_matrix: NDArray[np.float64], green_bar_mask: NDArray[np.bool_])  -> NDArray[np.bool_]:
+def first_breakouts(relational_matrix: NDArray[np.float64], consideration_mask: NDArray[np.bool_])  -> NDArray[np.bool_]:
     '''
-    Mask of first green breakout bars occuring after diagonal in relational_matrix.
+    Mask of first breakout bars occuring after diagonal in relational_matrix.
+    A breakout is a bar exceeding some resistance line.
 
     Parameters:
     relational_matrix of NDArray(n,n) s.t. values are some relational value of all bar
     pairs in an n-array of bars. A relational value of > 0 must indicate bar y is greater
     than bar x for relational_matrix(x,y).
-    green_bar_mask of NDArray(n,) consisting of boolean values where true indicates bar is
-    green.
+    consideration_mask of NDArray(n,) consisting of boolean values where true indicates bar
+    should even be considered as a breakout. For instance, if only green bars should be
+    considered as a breakout, then the mask should be True for green bars and false o.w.
+    If any bar should be considered, ie. red bar with a top value exceeding resistance line,
+    then mask should be an array of True values.
 
     Output: An (n,n) matrix of boolean values where each row has a single True value
-    representing the first green breakout bar.
+    representing the first breakout bar.
     '''
 
-    green_breakouts = (relational_matrix > 0) & upper_matrix_tri_mask(relational_matrix.shape) & green_bar_mask
+    breakouts = (relational_matrix > 0) & upper_matrix_tri_mask(relational_matrix.shape) & consideration_mask
 
-    return first_occurence_mask(green_breakouts)
+    return first_occurence_mask(breakouts)
 
 
 bars_ = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
@@ -429,8 +433,9 @@ print(slopes(top_diffs_2d).shape)
 bar_dfs = time_based_partition(bars,"1D")
 first_bar_df = bar_dfs[0]
 first_bar_df_green_mask = ~first_bar_df['red'].values
-first_brkout = first_green_breakouts(slopes(top_diffs_2d)[0], first_bar_df_green_mask)
+first_brkout = first_breakouts(slopes(top_diffs_2d)[0], np.ones_like(first_bar_df_green_mask, dtype=bool))
 print(np.argmax(first_brkout, axis=1))
+print(first_bar_df['top'].values)
 
 
 
