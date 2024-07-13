@@ -224,7 +224,7 @@ def slopes_2d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> N
 
     return np.divide(y_pts, x_pts, where=x_pts!=0)
 
-def k_root_mean_sqr_dev_1d(array: NDArray[np.float64], k: int, a: float) -> NDArray[np.float64]:
+def k_root_mean_sqr_dev_1d(array: NDArray[np.float64], k: int, a: float) -> float:
     '''
     Calculates the k-root of the average of the squared differences 
     between each data point in array and the specified value a.
@@ -232,7 +232,7 @@ def k_root_mean_sqr_dev_1d(array: NDArray[np.float64], k: int, a: float) -> NDAr
     Parameters: 
     array of (n,) or (1,n) NDArray, k for k-root, and specified value a.
 
-    Output: n-array of k-RMSD values from specied value a.
+    Output: float of k-RMSD value from specied value a.
     '''
     sqr_diff = (array - a)**2
 
@@ -257,17 +257,18 @@ def apply_upper_matrix_tri(f: Callable[[NDArray[np.any]], NDArray[np.any]], arra
 
     return f(array)[upper_row, upper_col]
 
-def for_each(f: Callable[[any], any], array: list[any]) -> NDArray[np.any]:
+def for_each(f: Callable[..., any], *array: list[any]) -> NDArray[np.any]:
     '''
     Apply function f on each element in array.
 
     Parameters: 
-    Function f consisting of one parameter. A list of any element.
+    * Function f consisting of same number of parameters as input arrays. 
     Function f must take elements in array as inputs.
+    * Lists of any elements but must be same size.
 
     Output: an NDArray of results from f on each element in array.
     '''
-    array_generator = map(f, array)
+    array_generator = map(f, *array)
 
     return np.array(list(array_generator))
 
@@ -360,13 +361,13 @@ def first_occurence_indices(mask_matrix: NDArray[np.bool_]) -> NDArray[np.int64]
 
     Parameters: NDArray(n,m) boolean matrix.
 
-    Outputs: NDArray(n,). If no Truth value is found in a row, m is the result
+    Outputs: NDArray(n,). If no Truth value is found in a row, -1 is the result
     rather than the index.
     '''
 
     first_true_indices = np.argmax(mask_matrix, axis=1)
 
-    return np.where((first_true_indices == 0) & ~mask_matrix[:, 0], mask_matrix.shape[1], first_true_indices)
+    return np.where((first_true_indices == 0) & ~mask_matrix[:, 0], -1, first_true_indices)
 
 def last_occurence_indices(mask_matrix: NDArray[np.bool_]) -> NDArray[np.int64]:
     '''
@@ -397,10 +398,27 @@ def occurence_mask(mask_matrix: NDArray[np.bool_], occurence_indices: Callable[[
     '''
     return column_indices(mask_matrix) == occurence_indices(mask_matrix)[:, None]
 
-def breakouts_mask(relational_matrix: NDArray[np.float64], consideration_mask: NDArray[np.bool_]) -> Callable[[Callable, Callable], NDArray[np.bool_]]:
+def combined_false_region_endpoints(start_matrix_mask: NDArray[np.bool_], end_matrix_mask: NDArray[np.bool_]) -> NDArray[np.int64]:
+
+    start_indices = last_occurence_indices(start_matrix_mask)
+
+    end_indices = first_occurence_indices(end_matrix_mask)
+
+    endpoints = np.column_stack((start_indices, end_indices))
+
+    return endpoints
+
+def between_endpoints_mask(endpoints: NDArray[np.int64]) -> NDArray[np.bool_]:
+
+    columns = np.arange(endpoints.shape[0])
+
+    return (columns > endpoints[:, 0][:, None]) & (columns < endpoints[:, 1][:, None])
+
+
+def positive_relation_mask(relational_matrix: NDArray[np.float64], consideration_mask: NDArray[np.bool_]) -> NDArray[np.bool_]:
     '''
-    Produces a function that operates on a breakouts matrix. The output function can
-    refine a breakout matrix to upper and lower, first and last breakout matrix.
+    Produces a 2D boolean matrix s.t. M(i, j) = True denotes bar j
+    surpasses resistance line i.
 
     Parameters: 
     * relational_matrix of NDArray(n,n) s.t. values are some relational value of all bar
@@ -412,10 +430,102 @@ def breakouts_mask(relational_matrix: NDArray[np.float64], consideration_mask: N
     If any bar should be considered, ie. red bar with a top value exceeding resistance line,
     then mask should be an array of True values.
 
+    Output: A boolean matrix of shape NDArray(n,n) representing all breakouts.
     '''
-    breakouts_mask = (relational_matrix > 0) & consideration_mask
 
-    return lambda direction, position : occurence_mask(breakouts_mask & direction(breakouts_mask.shape), position)
+    return (relational_matrix > 0) & consideration_mask
+
+def direction_mask(matrix_mask: NDArray[np.bool_]) -> Callable[[Callable[[tuple[int, int]], NDArray[np.bool_]]], NDArray[np.bool_]]:
+    '''
+    Produces a function that operates on a breakouts matrix. The output function can
+    refine a breakout matrix to an upper or lower breakouts matrix.
+
+    Parameters: NDArray(n,n) breakout matrix of boolean values.
+
+    Output: 
+    f(g) -> NDArray(n,n) such that g is a function with a parameter of (n,n)
+    and output NDArray(n,n) is a boolean matrix.
+    '''
+
+    return lambda direction : matrix_mask & direction(matrix_mask.shape)
+
+
+def time_ranges(df: pd.DataFrame, ranges: NDArray[np.int64]) -> NDArray[np.str_]:
+
+    '''
+    Converts an array of indices to corresponding timestamps located in dataframe.
+
+    Parameters: 
+    * dataframe that is time indexed.
+    * NDArray of indices.
+
+    Output: 
+    NDArray of times as strings with same dimension as ranges parameter. 
+
+    '''
+    return df.index.strftime('%H:%M:%S').to_numpy()[ranges]
+
+def lower_prices(prices: NDArray[np.float64], value: float):
+
+    lt_mask = prices < value
+
+    return prices[lt_mask]
+
+def upper_prices(prices: NDArray[np.float64], value: float):
+
+    gt_mask = prices > value
+
+    return prices[gt_mask]
+
+def price_k_rmsd(prices: NDArray[np.float64], price: float, k: int) -> float:
+
+    return k_root_mean_sqr_dev_1d(prices, k, price)
+
+def valid_zone_mask(resistance_zone_endpoints: NDArray[np.int64]) -> NDArray[np.bool_]:
+
+    return resistance_zone_endpoints[:, 1] < resistance_zone_endpoints.shape[0]
+
+def data(bars: pd.DataFrame, trades: pd.DataFrame):
+
+    bars_per_day = time_based_partition(bars, '1D')
+
+    trades_per_day = time_based_partition(trades, '1D')
+
+    bar_tops_per_day = for_each(lambda bars : bars['top'].values, bars_per_day)
+
+    bar_green_mask_per_day = for_each(lambda bar : ~bars['red'].values, bars_per_day)
+
+    relative_perc = compose_functions([for_each, matrix_operation_1d, relative_perc_1d])
+
+    relative_perc_matrices = relative_perc(bar_tops_per_day)
+
+    positive_relations_per_day = for_each(positive_relation_mask, relative_perc_matrices, bar_green_mask_per_day)
+
+    directions_f = for_each(direction_mask, positive_relations_per_day)
+
+    resistance_zone_endpoints = for_each(lambda d: combined_false_region_endpoints(d(lower_matrix_tri_mask), d(upper_matrix_tri_mask)), directions_f)
+
+    
+# def trades_in_range(bars_for_day: pd.DataFrame, trades_for_day: pd.DataFrame, range: np.array) -> pd.DataFrame:
+#     # Params: range = np.array of [int, int].
+#     # Filter trades dataframe to only trades that occured between specified bar range.
+
+#     start_bar_index = range[0]
+
+#     end_bar_index = range[1]
+
+#     end_bar_start_time = bars_for_day.index[end_bar_index].strftime('%H:%M:%S')
+
+#     bar_interval = bar_interval_in_minutes(bars_for_day)
+
+#     start_time = bars_for_day.index[start_bar_index].strftime('%H:%M:%S')
+
+#     end_time = acquire.add_minutes_to_time(time_str=end_bar_start_time, minutes_to_add=bar_interval)
+
+#     return trades_for_day.between_time(start_time=start_time, end_time=end_time, inclusive="left")
+
+
+
 
 
 
@@ -464,3 +574,10 @@ green_breakouts = breakouts_mask(slopes(top_diffs_2d)[0], first_bar_df_green_mas
 first_upper_green_breakouts = green_breakouts(upper_matrix_tri_mask, last_occurence_indices)
 print(np.argmax(first_upper_green_breakouts, axis=1))
 print(first_bar_df['top'].values)
+
+bar_time_range = time_ranges(first_bar_df, np.array([[0,2],[3,9],[4,8]]))
+
+print(bar_time_range)
+
+print(first_bar_df.between_time(start_time=bar_time_range[0,0], end_time=bar_time_range[0,1]))
+
