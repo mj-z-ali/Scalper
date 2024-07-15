@@ -152,12 +152,12 @@ def matrix_operation_xd(f: Callable[[NDArray[np.any], NDArray[np.any]], NDArray[
 def euclidean_distances_1d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
     '''
     Euclidean distance of 1-dimensional points_a(i) to points_b(i) for 
-    all i. If points_a and points_b are of differenct shape, then the 
+    all i. If points_a and points_b are of different shape, then the 
     function produces Euclidean distances for all point pairs.
 
     Parameters: 
     points_a and points_b of n and m 1-dimensional points, respectively.
-    If points_a and points_b are of differenct shape, then n=m.
+    If points_a and points_b are of different shape, then n=m.
 
     Output: 
     either n-array or (n,n) matrix of euclidean distances depending 
@@ -185,6 +185,23 @@ def euclidean_distances_xd(points_a: NDArray[np.float64], points_b: NDArray[np.f
     '''
     
     return np.sqrt(np.sum((points_a - points_b)**2, axis=-1))
+
+def diff_1d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
+    '''
+    Differences of 1-dimensional points_a(i) to points_b(i) for 
+    all i. If points_a and points_b are of different shape, then the 
+    function produces differences for all point pairs.
+
+    Parameters: 
+    points_a and points_b of n and m 1-dimensional points, respectively.
+    If points_a and points_b are of different shape, then n=m.
+
+    Output: 
+    either n-array or (n,n) matrix of euclidean distances depending 
+    on points_a and points_b being of same shape or not.
+    '''
+    
+    return points_a - points_b
 
 def relative_perc_1d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> NDArray[np.float64]:
     '''
@@ -483,29 +500,74 @@ def price_k_rmsd(prices: NDArray[np.float64], price: float, k: int) -> float:
 
 def valid_zone_mask(resistance_zone_endpoints: NDArray[np.int64]) -> NDArray[np.bool_]:
 
-    return resistance_zone_endpoints[:, 1] < resistance_zone_endpoints.shape[0]
+    return (resistance_zone_endpoints[:, 1] < resistance_zone_endpoints.shape[0]) & \
+        (np.diff(resistance_zone_endpoints) > 2)
 
-def data(bars: pd.DataFrame, trades: pd.DataFrame):
+def operation_per_element(*array) -> Callable:
+
+    return lambda f : for_each(f, *array)
+
+
+
+def lower_resistance_deviation(data_function: Callable, resistance_zone_endpoints: NDArray[np.int64]) -> NDArray[np.float64]:
+
+    bars, trades, zone_mask = data_function('bars'), data_function('trades'), data_function('zone_mask')
+
+    zone_endpt_times = time_ranges(bars, resistance_zone_endpoints[zone_mask] + np.array([1, 0]))
+
+    trades_in_zone = lambda time_range: trades.between_time(start_time=time_range[0], end_time=time_range[1], inclusive="left")['price']
+    
+    trade_prices_per_zone = for_each(trades_in_zone, zone_endpt_times)
+
+    resistance_levels_per_zone = bars['top'].values[zone_mask]
+
+    return for_each(lambda tp, rl: price_k_rmsd(lower_prices(tp, rl), rl, 128), trade_prices_per_zone, resistance_levels_per_zone)
+
+
+def only_green(bars: pd.DataFrame) -> NDArray[np.bool_]:
+    return ~bars['red'].values
+def only_red(bars: pd.DataFrame) -> NDArray[np.bool_]:
+    return bars['red'].values
+def all_bars(bars: pd.DataFrame) -> NDArray[np.bool_]:
+    return np.ones_like(bars['red'].values, dtype=bool)
+
+def resistance_breakouts_mask(bar_tops: NDArray[np.float64], consideration_function: Callable[[pd.DataFrame], NDArray[np.bool_]]) -> NDArray[np.bool_]:
+
+    relational_matrix = matrix_operation_1d(diff_1d, bar_tops)
+
+    return positive_relation_mask(relational_matrix, consideration_function(bars))
+
+def resistance_zone_endpoints(bars: pd.DataFrame, consideration_function: Callable[[pd.DataFrame], NDArray[np.bool_]]) -> NDArray[np.int64]:
+
+    breakouts_mask = resistance_breakouts_mask(bars['top'].values, consideration_function)
+
+    breakout_direction_mask = direction_mask(breakouts_mask)
+
+    upper_breakouts_mask = breakout_direction_mask(upper_matrix_tri_mask)
+
+    lower_breakouts_mask = breakout_direction_mask(lower_matrix_tri_mask)
+
+    return combined_false_region_endpoints(lower_breakouts_mask, upper_breakouts_mask)
+
+def resistance_data(bars: pd.DataFrame, trades: pd.DataFrame, resistance_zone_endpoints: NDArray[np.int64], op1: Callable, op2: Callable):
+
+    zone_mask = valid_zone_mask(resistance_zone_endpoints)
+
+    data_dict = {'bars': bars, 'trades': trades, 'zone_mask': zone_mask}
+    
+    data_f = lambda i : data_dict[i]
+
+    op1(data_f, resistance_zone_endpoints)
+
+def resistance_data_function(bars: pd.DataFrame, trades: pd.DataFrame, consideration_function: Callable[[pd.DataFrame], NDArray[np.bool_]]) -> Callable[..., NDArray[np.any]]:
 
     bars_per_day = time_based_partition(bars, '1D')
 
     trades_per_day = time_based_partition(trades, '1D')
 
-    bar_tops_per_day = for_each(lambda bars : bars['top'].values, bars_per_day)
+    resistance_zone_endpts_per_day = for_each(lambda bars : resistance_zone_endpoints(consideration_function, bars), bars_per_day)
 
-    bar_green_mask_per_day = for_each(lambda bar : ~bars['red'].values, bars_per_day)
-
-    relative_perc = compose_functions([for_each, matrix_operation_1d, relative_perc_1d])
-
-    relative_perc_matrices = relative_perc(bar_tops_per_day)
-
-    positive_relations_per_day = for_each(positive_relation_mask, relative_perc_matrices, bar_green_mask_per_day)
-
-    directions_f = for_each(direction_mask, positive_relations_per_day)
-
-    resistance_zone_endpoints = for_each(lambda d: combined_false_region_endpoints(d(lower_matrix_tri_mask), d(upper_matrix_tri_mask)), directions_f)
-
-    
+    return lambda op1, op2: np.column_stack((op1, op2))
 # def trades_in_range(bars_for_day: pd.DataFrame, trades_for_day: pd.DataFrame, range: np.array) -> pd.DataFrame:
 #     # Params: range = np.array of [int, int].
 #     # Filter trades dataframe to only trades that occured between specified bar range.
