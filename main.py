@@ -32,15 +32,15 @@ def main() -> int:
 
     # create_bars_and_trades_csv(data_client=data_client, bar_interval=5, bar_unit=TimeFrameUnit.Minute, start_date="2024-06-17", end_date="2024-06-28")
  
-    bar_df = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
+    bars_ = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
 
-    bar_with_top_bottom_df = analyze.insert_top_bottom_columns(bar_df=bar_df)
+    bars = analyze.insert_top_bottom_columns(bars_)
 
-    trade_df = pd.read_csv('2024-06-17-to-2024-06-28-tick.csv', parse_dates=['timestamp'], index_col='timestamp')
+    trades = pd.read_csv('2024-06-17-to-2024-06-28-tick.csv', parse_dates=['timestamp'], index_col='timestamp')
     
-    resist_centroids, _ = analyze.resistance_centroids(bar_df=bar_with_top_bottom_df, trade_df=trade_df)
+    resist_centroids, _ = analyze.resistance_centroids(bars, trades)
 
-    analyze.resistance_plot(bar_df=bar_with_top_bottom_df, trade_df=trade_df, centroids=resist_centroids)
+    analyze.resistance_plot(bars, trades, centroids=resist_centroids)
     
     return 0
 

@@ -343,7 +343,7 @@ def resistance_slopes(bar_top_diffs: np.array, resistance_points: np.array):
 
     # x-root of slope_numerator. This should reduce the variance of group
     # of values closer to 0 then it would to ones further away.
-    return np.power(slope_numerator, 1/1.5)
+    return np.power(slope_numerator, 1/1.2)
 
 def trades_between_two_bars(bars_for_day: pd.DataFrame, trades_for_day: pd.DataFrame, ranges: np.array) -> list[pd.DataFrame]:
     # Params: ranges = 2D np.array of [[int, int] ... [int, int]].
@@ -414,14 +414,14 @@ def resistance_centroids(bars: pd.DataFrame, trades: pd.DataFrame):
     resist_indx_slope_moment = reduce(lambda acc, x : np.concatenate((acc, x)), data_generator, np.empty((0,5)))
     
     centroids, labels = km.train(data=resist_indx_slope_moment[:,3:], number_of_centroids=13, iteration=0, max_iterations=100)
-    
+    print(centroids)
     return centroids, labels
 
 def resistance_inference(centroids: np.array, resistance_data_for_day: np.array) -> np.array:
 
     labels = km.inference(data=resistance_data_for_day[:, 3:], centroids=centroids)
 
-    return resistance_data_for_day[(labels==11)]
+    return resistance_data_for_day[(labels==1) | (labels==6)]
 
 def resistance_plot(bars: pd.DataFrame, trades: pd.DataFrame, centroids: np.array):
     
