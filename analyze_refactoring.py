@@ -350,6 +350,10 @@ def lower_matrix_tri_mask(shape: tuple[int,...]) -> NDArray[np.bool_]:
     '''
     return np.tril(np.ones(shape, dtype=bool), k=-1)
 
+def diagonal_matrix_mask(shape: tuple[int,...]) -> NDArray[np.bool_]:
+    
+    return np.eye(shape, dtype=bool)
+
 def row_indices(matrix: NDArray[np.any]) -> NDArray[np.int64]:
     '''
     Row indices of a 2D matrix.
@@ -498,30 +502,29 @@ def price_k_rmsd(prices: NDArray[np.float64], price: float, k: int) -> float:
 
     return k_root_mean_sqr_dev_1d(prices, k, price)
 
-def valid_zone_mask(resistance_zone_endpoints: NDArray[np.int64]) -> NDArray[np.bool_]:
-
-    return (resistance_zone_endpoints[:, 1] < resistance_zone_endpoints.shape[0]) & \
-        (np.diff(resistance_zone_endpoints) > 2)
-
 def operation_per_element(*array) -> Callable:
 
     return lambda f : for_each(f, *array)
 
+def lower_resistance_deviation(data_function: Callable[[str], any]) -> NDArray[np.float64]:
 
+    bars, trades, valid_resistance, resistance_zone_endpoints = data_function('bars'), data_function('trades'), data_function('valid_resistance'), data_function('resistance_zone_endpoints')
 
-def lower_resistance_deviation(data_function: Callable, resistance_zone_endpoints: NDArray[np.int64]) -> NDArray[np.float64]:
-
-    bars, trades, zone_mask = data_function('bars'), data_function('trades'), data_function('zone_mask')
-
-    zone_endpt_times = time_ranges(bars, resistance_zone_endpoints[zone_mask] + np.array([1, 0]))
+    zone_endpt_times = time_ranges(bars, resistance_zone_endpoints[valid_resistance] + np.array([1, 0]))
 
     trades_in_zone = lambda time_range: trades.between_time(start_time=time_range[0], end_time=time_range[1], inclusive="left")['price']
     
     trade_prices_per_zone = for_each(trades_in_zone, zone_endpt_times)
 
-    resistance_levels_per_zone = bars['top'].values[zone_mask]
+    resistance_levels_per_zone = bars['top'].values[valid_resistance]
 
     return for_each(lambda tp, rl: price_k_rmsd(lower_prices(tp, rl), rl, 128), trade_prices_per_zone, resistance_levels_per_zone)
+
+def resistance_price_diff(data_function: Callable[[str], any]) -> NDArray[np.float64]:
+
+    valid_resistance, resistance_points = data_function('valid_resistance'), data_function('resistance_points')
+
+    resistance_points[valid_resistance][:, 0], resistance_points[valid_resistance][:, 1]
 
 
 def only_green(bars: pd.DataFrame) -> NDArray[np.bool_]:
@@ -531,41 +534,110 @@ def only_red(bars: pd.DataFrame) -> NDArray[np.bool_]:
 def all_bars(bars: pd.DataFrame) -> NDArray[np.bool_]:
     return np.ones_like(bars['red'].values, dtype=bool)
 
-def resistance_breakouts_mask(bar_tops: NDArray[np.float64], consideration_function: Callable[[pd.DataFrame], NDArray[np.bool_]]) -> NDArray[np.bool_]:
+def resistance_breakout_region_function(relational_matrix: NDArray[np.bool_], consideration_function: Callable[[pd.DataFrame], NDArray[np.bool_]]) -> Callable[[Callable], NDArray[np.bool_]]:
 
-    relational_matrix = matrix_operation_1d(diff_1d, bar_tops)
+    breakouts_mask = positive_relation_mask(relational_matrix, consideration_function(bars))
 
-    return positive_relation_mask(relational_matrix, consideration_function(bars))
+    direction_function =  direction_mask(breakouts_mask)
 
-def resistance_zone_endpoints(bars: pd.DataFrame, consideration_function: Callable[[pd.DataFrame], NDArray[np.bool_]]) -> NDArray[np.int64]:
+    return lambda f : direction_function(f)
 
-    breakouts_mask = resistance_breakouts_mask(bars['top'].values, consideration_function)
+def resistance_zone_endpoints(breakout_region_function: Callable[[Callable], NDArray[np.bool_]]) -> NDArray[np.int64]:
+    
+    upper_breakouts_mask = breakout_region_function(upper_matrix_tri_mask)
 
-    breakout_direction_mask = direction_mask(breakouts_mask)
+    lower_breakouts_mask = breakout_region_function(lower_matrix_tri_mask)
 
-    upper_breakouts_mask = breakout_direction_mask(upper_matrix_tri_mask)
+    zone_endpoints = combined_false_region_endpoints(lower_breakouts_mask, upper_breakouts_mask)
 
-    lower_breakouts_mask = breakout_direction_mask(lower_matrix_tri_mask)
+    return zone_endpoints
 
-    return combined_false_region_endpoints(lower_breakouts_mask, upper_breakouts_mask)
+def pattern_mask_function(red_bars: NDArray[np.bool_], green_bars: NDArray[np.bool_]) -> NDArray[np.bool_]:
 
-def resistance_data(bars: pd.DataFrame, trades: pd.DataFrame, resistance_zone_endpoints: NDArray[np.int64], op1: Callable, op2: Callable):
+    indices = np.arange(red_bars.shape[0])
 
-    zone_mask = valid_zone_mask(resistance_zone_endpoints)
+    return lambda pattern_function, i : indices == np.where(pattern_function(red_bars, green_bars), indices + i, -1)[:, None]
 
-    data_dict = {'bars': bars, 'trades': trades, 'zone_mask': zone_mask}
+def prev_green_red_pattern_mask(red_bars: NDArray[np.bool_], green_bars: NDArray[np.bool_]) -> NDArray[np.bool_]:
+    
+    prev_green_mask = np.concatenate(([False], green_bars[:-1]))
+
+    return prev_green_mask & red_bars
+
+def next_green_red_pattern_mask(red_bars: NDArray[np.bool_], green_bars: NDArray[np.bool_]) -> NDArray[np.bool_]:
+
+    next_red_mask = np.concatenate((red_bars[1:], [False]))
+
+    return green_bars & next_red_mask
+
+def green_red_pattern_mask(bars: pd.DataFrame) -> NDArray[np.bool_]:
+
+    red_bars = only_red(bars)
+
+    green_bars = only_green(bars)
+
+    green_red_pattern_function = pattern_mask_function(red_bars, green_bars)
+
+    return lambda b : b & (green_red_pattern_function(prev_green_red_pattern_mask,  -1) | green_red_pattern_function(next_green_red_pattern_mask, 1))
+
+def valid_resistance_mask(resistance_zone_endpoints: NDArray[np.int64], resistance_points: NDArray[np.int64]) -> NDArray[np.bool_]:
+
+    return (resistance_zone_endpoints[:, 1] < resistance_zone_endpoints.shape[0]) & \
+        (resistance_points[:, 0] != -1)
+
+def resistance_points_mask_function(resistance_zone_endpoints: NDArray[np.int64]) -> NDArray[np.bool_]:
+
+    in_zone_mask = between_endpoints_mask(resistance_zone_endpoints)
+
+    non_self_resistance_mask = ~diagonal_matrix_mask(in_zone_mask.shape)
+
+    return lambda m : in_zone_mask & non_self_resistance_mask & ~m
+
+def resistance_points(relational_matrix: NDArray[np.bool_], resistance_points_mask: NDArray[np.bool_]) -> NDArray[np.int64]:
+
+    inf_relational_matrix = np.where(~resistance_points_mask, np.inf, relational_matrix)
+    
+    point_1_indx = np.arange(inf_relational_matrix.shape[0])
+
+    point_2_indx_ = np.argmin(inf_relational_matrix, axis=1)
+
+    point_2_indx = np.where((point_2_indx_ == 0) & (inf_relational_matrix[:,0] == np.inf), -1, point_2_indx_)
+
+    points = np.sort(np.column_stack((point_1_indx, point_2_indx)), axis=1)
+
+    return points
+
+def resistance_data(bars: pd.DataFrame, trades: pd.DataFrame, consideration_function: Callable[[pd.DataFrame], NDArray[np.bool_]], exclude_green_red_pattern: bool, op1: Callable, op2: Callable):
+
+    relational_matrix = matrix_operation_1d(diff_1d, bars['top'].values)
+
+    breakout_region_function = resistance_breakout_region_function(relational_matrix, consideration_function)
+
+    zone_endpoints = resistance_zone_endpoints(breakout_region_function)
+
+    points_mask_function = resistance_points_mask_function(zone_endpoints)
+
+    exclude_green_red_mask_function = green_red_pattern_mask(bars)
+
+    points_mask = points_mask_function(exclude_green_red_mask_function(exclude_green_red_pattern))
+
+    points = resistance_points(relational_matrix, points_mask)
+
+    valid_resistance = valid_resistance_mask(zone_endpoints, points)
+
+    data_dict = {'bars': bars, 'trades': trades, 'valid_resistance_mask': valid_resistance, 'resistance_zone_endpoints': zone_endpoints, 'resistance_points': points}
     
     data_f = lambda i : data_dict[i]
 
-    op1(data_f, resistance_zone_endpoints)
+    op1(data_f)
+
+    op2(data_f)
 
 def resistance_data_function(bars: pd.DataFrame, trades: pd.DataFrame, consideration_function: Callable[[pd.DataFrame], NDArray[np.bool_]]) -> Callable[..., NDArray[np.any]]:
 
     bars_per_day = time_based_partition(bars, '1D')
 
     trades_per_day = time_based_partition(trades, '1D')
-
-    resistance_zone_endpts_per_day = for_each(lambda bars : resistance_zone_endpoints(consideration_function, bars), bars_per_day)
 
     return lambda op1, op2: np.column_stack((op1, op2))
 # def trades_in_range(bars_for_day: pd.DataFrame, trades_for_day: pd.DataFrame, range: np.array) -> pd.DataFrame:
