@@ -241,7 +241,7 @@ def slopes_2d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> N
 
     return np.divide(y_pts, x_pts, where=x_pts!=0)
 
-def k_root_mean_sqr_dev_1d(array: NDArray[np.float64], k: int, a: float) -> float:
+def k_root_mean_sqr_dev_1d(array: NDArray[np.float64], a: float, k: int) -> float:
     '''
     Calculates the k-root of the average of the squared differences 
     between each data point in array and the specified value a.
@@ -516,7 +516,7 @@ def resistance_k_rmsd(bound: Callable[[NDArray[np.float64], float], NDArray[np.f
 
 def resistance_k_rmsd_data(bound: Callable[[NDArray[np.float64], float], NDArray[np.float64]], k: int, prices_per_zone: NDArray[np.float64], resistance_levels_per_zone: NDArray[np.float64]) -> NDArray[np.float64]:
 
-    k_rmsd_per_zone = for_each(lambda tp, rl: k_root_mean_sqr_dev_1d(bound(tp, rl), k, rl), prices_per_zone, resistance_levels_per_zone)
+    k_rmsd_per_zone = for_each(lambda tp, rl: k_root_mean_sqr_dev_1d(bound(tp, rl), rl, k), prices_per_zone, resistance_levels_per_zone)
 
     return k_rmsd_per_zone
 
@@ -527,6 +527,24 @@ def resistance_euclidean_1d(data: Callable[[str], any]) -> NDArray[np.float64]:
     resistance_point_prices = bar_tops[resistance_points]
 
     return euclidean_distances_1d(resistance_point_prices[:,0], resistance_point_prices[:,1])
+
+def resistance_k_root_euclidean_1d(k: int) -> Callable[[Callable], NDArray[np.float64]]:
+
+    return lambda data: np.power(resistance_euclidean_1d(data), 1/k)
+
+def resistance_relative_perc_diff_1d(data: Callable[[str], any]) -> NDArray[np.float64]:
+
+    bar_tops, resistance_points = data('bars')['top'].values, data('resistance_points')
+
+    resistance_point_prices = bar_tops[resistance_points]
+
+    return relative_perc_1d(resistance_point_prices[:,0], resistance_point_prices[:,1])
+
+def resistance_k_root_relative_perc_diff_1d(k: int) -> Callable[[Callable], NDArray[np.float64]]:
+
+    return lambda data: np.power(resistance_relative_perc_diff_1d(data), 1/k)
+
+
 
 def only_green(bars: pd.DataFrame) -> NDArray[np.bool_]:
     return ~bars['red'].values
@@ -588,7 +606,7 @@ def exclude_none(bars: pd.DataFrame) -> NDArray[np.bool_]:
 def valid_resistance_mask(resistance_zone_endpoints: NDArray[np.int64], resistance_points: NDArray[np.int64]) -> NDArray[np.bool_]:
 
     return (resistance_zone_endpoints[:, 1] < resistance_zone_endpoints.shape[0]) & \
-        (resistance_points[:, 0] != -1)
+        (resistance_points[:, 1] != -1)
 
 def resistance_points_mask_function(resistance_zone_endpoints: NDArray[np.int64]) -> NDArray[np.bool_]:
 
@@ -608,7 +626,7 @@ def resistance_points(relational_matrix: NDArray[np.bool_], resistance_points_ma
 
     point_2_indx = np.where((point_2_indx_ == 0) & (inf_relational_matrix[:,0] == np.inf), -1, point_2_indx_)
 
-    points = np.sort(np.column_stack((point_1_indx, point_2_indx)), axis=1)
+    points = np.column_stack((point_1_indx, point_2_indx))
 
     return points
 
