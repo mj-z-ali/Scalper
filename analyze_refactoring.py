@@ -532,7 +532,7 @@ def resistance_k_root_euclidean_1d(k: int) -> Callable[[Callable], NDArray[np.fl
 
     return lambda data: np.power(resistance_euclidean_1d(data), 1/k)
 
-def resistance_relative_perc_diff_1d(data: Callable[[str], any]) -> NDArray[np.float64]:
+def resistance_relative_perc_diff(data: Callable[[str], any]) -> NDArray[np.float64]:
 
     bar_tops, resistance_points = data('bars')['top'].values, data('resistance_points')
 
@@ -540,11 +540,18 @@ def resistance_relative_perc_diff_1d(data: Callable[[str], any]) -> NDArray[np.f
 
     return relative_perc_1d(resistance_point_prices[:,0], resistance_point_prices[:,1])
 
-def resistance_k_root_relative_perc_diff_1d(k: int) -> Callable[[Callable], NDArray[np.float64]]:
+def resistance_k_root_relative_perc_diff(k: int) -> Callable[[Callable], NDArray[np.float64]]:
 
-    return lambda data: np.power(resistance_relative_perc_diff_1d(data), 1/k)
+    return lambda data: np.power(resistance_relative_perc_diff(data), 1/k)
 
+def resistance_slopes(data: Callable[[str], any]) -> NDArray[np.float64]:
 
+    bar_tops, resistance_points = data('bars')['top'].values, data('resistance_points')
+
+    resistance_point_prices = bar_tops[resistance_points]
+
+    return slopes_2d(resistance_points, resistance_point_prices)
+    
 
 def only_green(bars: pd.DataFrame) -> NDArray[np.bool_]:
     return ~bars['red'].values
