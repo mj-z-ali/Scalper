@@ -552,6 +552,10 @@ def resistance_slopes(data: Callable[[str], any]) -> NDArray[np.float64]:
 
     return slopes_2d(resistance_points, resistance_point_prices)
     
+def resistance_k_root_slopes(k: int) -> Callable[[Callable], NDArray[np.float64]]:
+
+    return lambda data: np.power(resistance_slopes(data), 1/k)
+
 
 def only_green(bars: pd.DataFrame) -> NDArray[np.bool_]:
     return ~bars['red'].values
