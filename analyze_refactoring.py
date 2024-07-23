@@ -538,7 +538,11 @@ def resistance_euclidean_2d(data: Callable[[str], any]) -> NDArray[np.float64]:
 
     resistance_point_prices = bar_tops[resistance_points]
 
-    return euclidean_distances_xd(resistance_point_prices, resistance_points)
+    points_a = np.column_stack((resistance_points[:,0], resistance_point_prices[:,0]))
+
+    points_b = np.column_stack((resistance_points[:,1], resistance_point_prices[:,1]))
+
+    return euclidean_distances_xd(points_a, points_b)
 
 def resistance_k_root_euclidean_2d(k: int) -> Callable[[Callable], NDArray[np.float64]]:
 
@@ -562,11 +566,19 @@ def resistance_slopes(data: Callable[[str], any]) -> NDArray[np.float64]:
 
     resistance_point_prices = bar_tops[resistance_points]
 
-    return slopes_2d(resistance_points, resistance_point_prices)
+    points_a = np.column_stack((resistance_points[:,0], resistance_point_prices[:,0]))
+
+    points_b = np.column_stack((resistance_points[:,1], resistance_point_prices[:,1]))
+
+    return slopes_2d(points_a, points_b)
+
+def resistance_abs_slopes(data: Callable[[str], any]) -> Callable[[Callable], NDArray[np.float64]]:
+
+    return np.abs(resistance_slopes(data))
     
 def resistance_k_root_slopes(k: int) -> Callable[[Callable], NDArray[np.float64]]:
 
-    return lambda data: np.power(resistance_slopes(data), 1/k)
+    return lambda data: np.power(resistance_abs_slopes(data), 1/k)
 
 
 def only_green(bars: pd.DataFrame) -> NDArray[np.bool_]:
