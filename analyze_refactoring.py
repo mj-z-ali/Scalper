@@ -532,6 +532,18 @@ def resistance_k_root_euclidean_1d(k: int) -> Callable[[Callable], NDArray[np.fl
 
     return lambda data: np.power(resistance_euclidean_1d(data), 1/k)
 
+def resistance_euclidean_2d(data: Callable[[str], any]) -> NDArray[np.float64]:
+
+    bar_tops, resistance_points = data('bars')['top'].values, data('resistance_points')
+
+    resistance_point_prices = bar_tops[resistance_points]
+
+    return euclidean_distances_xd(resistance_point_prices, resistance_points)
+
+def resistance_k_root_euclidean_2d(k: int) -> Callable[[Callable], NDArray[np.float64]]:
+
+    return lambda data: np.power(resistance_euclidean_2d(data), 1/k)
+
 def resistance_relative_perc_diff(data: Callable[[str], any]) -> NDArray[np.float64]:
 
     bar_tops, resistance_points = data('bars')['top'].values, data('resistance_points')
