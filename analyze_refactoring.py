@@ -241,7 +241,7 @@ def slopes_2d(points_a: NDArray[np.float64], points_b: NDArray[np.float64]) -> N
 
     return np.divide(y_pts, x_pts, where=x_pts!=0)
 
-def k_root_mean_sqr_dev_1d(array: NDArray[np.float64], a: float, k: int) -> float:
+def k_root_mean_sqr_dev_1d(array: NDArray[np.float64], a: float, k: float) -> float:
     '''
     Calculates the k-root of the average of the squared differences 
     between each data point in array and the specified value a.
@@ -502,7 +502,7 @@ def trades_between_bars(trades: pd.DataFrame, time_range: NDArray[np.str_]) -> p
 
     return trades.between_time(start_time=time_range[0], end_time=time_range[1], inclusive="left")
 
-def resistance_k_rmsd(bound: Callable[[NDArray[np.float64], float], NDArray[np.float64]], k: int) -> Callable[[Callable[[str], any]],  NDArray[np.float64]]:
+def resistance_k_rmsd(bound: Callable[[NDArray[np.float64], float], NDArray[np.float64]], k: float) -> Callable[[Callable[[str], any]],  NDArray[np.float64]]:
     
     zone_endpt_times = lambda bars, zone_endpoints : time_ranges(bars, zone_endpoints + np.array([1, 0]))
 
@@ -514,7 +514,7 @@ def resistance_k_rmsd(bound: Callable[[NDArray[np.float64], float], NDArray[np.f
 
     return lambda data: resistance_k_rmsd_data(bound, k, get_prices_per_zone(data), get_levels_per_zone(data))
 
-def resistance_k_rmsd_data(bound: Callable[[NDArray[np.float64], float], NDArray[np.float64]], k: int, prices_per_zone: NDArray[np.float64], resistance_levels_per_zone: NDArray[np.float64]) -> NDArray[np.float64]:
+def resistance_k_rmsd_data(bound: Callable[[NDArray[np.float64], float], NDArray[np.float64]], k: float, prices_per_zone: NDArray[np.float64], resistance_levels_per_zone: NDArray[np.float64]) -> NDArray[np.float64]:
 
     k_rmsd_per_zone = for_each(lambda tp, rl: k_root_mean_sqr_dev_1d(bound(tp, rl), rl, k), prices_per_zone, resistance_levels_per_zone)
 
@@ -528,7 +528,7 @@ def resistance_euclidean_1d(data: Callable[[str], any]) -> NDArray[np.float64]:
 
     return euclidean_distances_1d(resistance_point_prices[:,0], resistance_point_prices[:,1])
 
-def resistance_k_root_euclidean_1d(k: int) -> Callable[[Callable], NDArray[np.float64]]:
+def resistance_k_root_euclidean_1d(k: float) -> Callable[[Callable], NDArray[np.float64]]:
 
     return lambda data: np.power(resistance_euclidean_1d(data), 1/k)
 
@@ -544,7 +544,7 @@ def resistance_euclidean_2d(data: Callable[[str], any]) -> NDArray[np.float64]:
 
     return euclidean_distances_xd(points_a, points_b)
 
-def resistance_k_root_euclidean_2d(k: int) -> Callable[[Callable], NDArray[np.float64]]:
+def resistance_k_root_euclidean_2d(k: float) -> Callable[[Callable], NDArray[np.float64]]:
 
     return lambda data: np.power(resistance_euclidean_2d(data), 1/k)
 
@@ -556,7 +556,7 @@ def resistance_relative_perc_diff(data: Callable[[str], any]) -> NDArray[np.floa
 
     return relative_perc_1d(resistance_point_prices[:,0], resistance_point_prices[:,1])
 
-def resistance_k_root_relative_perc_diff(k: int) -> Callable[[Callable], NDArray[np.float64]]:
+def resistance_k_root_relative_perc_diff(k: float) -> Callable[[Callable], NDArray[np.float64]]:
 
     return lambda data: np.power(resistance_relative_perc_diff(data), 1/k)
 
@@ -576,10 +576,17 @@ def resistance_abs_slopes(data: Callable[[str], any]) -> Callable[[Callable], ND
 
     return np.abs(resistance_slopes(data))
     
-def resistance_k_root_slopes(k: int) -> Callable[[Callable], NDArray[np.float64]]:
+def resistance_k_root_slopes(k: float) -> Callable[[Callable], NDArray[np.float64]]:
 
     return lambda data: np.power(resistance_abs_slopes(data), 1/k)
 
+def resistance_ratio(f: Callable, g: Callable) -> Callable[[Callable], NDArray[np.float64]]:
+
+    return lambda data: f(data) / g(data)
+
+def resistance_k_root_ratio(k: float, f: Callable, g: Callable) -> Callable[[Callable], NDArray[np.float64]]:
+
+    return lambda data: np.power(np.abs(f(data) / g(data)), 1/k)
 
 def only_green(bars: pd.DataFrame) -> NDArray[np.bool_]:
     return ~bars['red'].values
@@ -653,13 +660,13 @@ def resistance_points_mask_function(resistance_zone_endpoints: NDArray[np.int64]
 
 def resistance_points(relational_matrix: NDArray[np.bool_], resistance_points_mask: NDArray[np.bool_]) -> NDArray[np.int64]:
 
-    inf_relational_matrix = np.where(~resistance_points_mask, np.inf, relational_matrix)
+    inf_relational_matrix = np.where(~resistance_points_mask, -np.inf, relational_matrix)
     
     point_1_indx = np.arange(inf_relational_matrix.shape[0])
 
-    point_2_indx_ = np.argmin(inf_relational_matrix, axis=1)
+    point_2_indx_ = np.argmax(inf_relational_matrix, axis=1)
 
-    point_2_indx = np.where((point_2_indx_ == 0) & (inf_relational_matrix[:,0] == np.inf), -1, point_2_indx_)
+    point_2_indx = np.where((point_2_indx_ == 0) & (inf_relational_matrix[:,0] == -np.inf), -1, point_2_indx_)
 
     points = np.column_stack((point_1_indx, point_2_indx))
 
@@ -684,8 +691,6 @@ def resistance_data(bars: pd.DataFrame, trades: pd.DataFrame, breakout_considera
     data_dict = {'bars': bars, 'trades': trades, 'resistance_levels': bars['top'].values[valid_resistance], 'resistance_zone_endpoints': zone_endpoints[valid_resistance], 'resistance_points': points[valid_resistance]}
     
     data_f = lambda i : data_dict[i]
-
-    print(op1, op2)
 
     return np.column_stack((data_f('resistance_levels'), data_f('resistance_zone_endpoints'), data_f('resistance_points'), op1(data_f), op2(data_f)))
 
