@@ -27,6 +27,7 @@ def fit_polynomial(x: NDArray[np.float64], y: NDArray[np.float64], degree: int) 
     # Compute coefficients "a" using the formula:
     # (X^T X)a = X^T y -> a = (X^T X)^-1 X^T y
     coefficients = np.linalg.inv(X_T @ X) @ X_T @ y
+    print(f"coefficients {coefficients}")
     print(f"f''(x) = {2*coefficients[2]}")
     return coefficients
 
@@ -44,10 +45,11 @@ def parabola_area(coefficients: NDArray[np.float64], x: NDArray[np.int64]) -> ND
     Output: 
     An NDArray(n,) of floating points denoting the areas of each parabola.
     '''
-    
+    c = coefficients * np.array([1,1/2,1/3])
+
     x_x_sq_x_cb = np.array([np.diff(x), np.diff(x**2), np.diff(x**3)]).transpose(1,0,2)
 
-    areas = np.einsum('ij,ijk->i', coefficients, x_x_sq_x_cb)
+    areas = np.einsum('ij,ijk->i', c, np.abs(x_x_sq_x_cb))
 
     return areas
 
