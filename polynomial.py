@@ -31,7 +31,7 @@ def fit_polynomial(x: NDArray[np.float64], y: NDArray[np.float64], degree: int) 
     print(f"f''(x) = {2*coefficients[2]}")
     return coefficients
 
-def parabola_area(coefficients: NDArray[np.float64], x: NDArray[np.int64]) -> NDArray[np.float64]:
+def parabolic_area(coefficients: NDArray[np.float64], x: NDArray[np.int64]) -> NDArray[np.float64]:
     '''
     Computes the absolute area of a parabola using the formula
     A = a/3(x_1^3 - x_0^3) + b/2(x_1^2 - x_0^2) + c(x_1 - x_0), 
