@@ -3,9 +3,9 @@ import numpy as np
 import client
 import acquire
 import analyze_refactoring as analyze
-from analyze_refactoring import only_green, exclude_green_red_pattern, resistance_euclidean_1d, resistance_k_rmsd, lower_bound, for_each
+from analyze_refactoring import time_based_partition, only_green, all_bars, exclude_green_red_pattern, all_components, pca_components, lower_bound, resistance_line_range, resistance_zone_range, resistance_euclidean_1d, resistance_euclidean_2d, resistance_k_rmsd, resistance_relative_perc_diff, resistance_slopes, resistance_parabolic_concavity, resistance_parabolic_area, k_root, abs, ratio, product, add, subtract
 import k_means as km
-import matplotlib.pyplot as plt
+import plt
 from alpaca_trade_api.rest import REST, TimeFrame, TimeFrameUnit
 from functools import reduce
 
@@ -35,16 +35,35 @@ def main() -> int:
     bars_ = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
 
     bars = analyze.append_top_bottom_columns(bars_)
-
+    
     trades = pd.read_csv('2024-06-17-to-2024-06-28-tick.csv', parse_dates=['timestamp'], index_col='timestamp')
     
-    resistance_data_function = analyze.resistance_data_function(bars, trades)
+    bars_per_day, resistance_data_function = analyze.resistance_data_function(bars, trades, pca_components(2))
 
-    resistance_data = resistance_data_function(only_green, exclude_green_red_pattern, resistance_euclidean_1d, resistance_k_rmsd(lower_bound, 128))
+    resistance_data = resistance_data_function(all_bars, exclude_green_red_pattern, resistance_parabolic_area, resistance_parabolic_concavity, resistance_euclidean_1d, resistance_euclidean_2d, resistance_k_rmsd(lower_bound,resistance_zone_range,2), resistance_relative_perc_diff, abs(resistance_slopes))
 
-    resistance_k_means_data = reduce(lambda acc, x: np.row_stack((acc, x[:, -2:])), resistance_data, np.empty((0,2)))
+    _, resistance_data_function_2 = analyze.resistance_data_function(bars,trades, all_components)
+
+    resistance_data_2 = resistance_data_function_2(all_bars, exclude_green_red_pattern, resistance_relative_perc_diff)
+
+    # resistance_k_means_data =  np.column_stack((resistance_data[:,-2], (resistance_data_2[:,-1]+0.1) / resistance_data[:,-1]))
+
+    resistance_k_means_data = resistance_data[:,-2:]
+
+
+    # resistance_k_means_data = reduce(lambda acc, x: np.row_stack((acc, x[:, -2:])), resistance_data, np.empty((0,2)))
     
-    km.train(resistance_k_means_data, 10, 0, 100)
+    centroids, labels = km.train(resistance_k_means_data, 10, 0, 100)
+
+    learned_resistance_data = resistance_data[labels==7]
+
+    # learned_resistance_data = list(map(lambda data : data[km.inference(data[:,-2:], centroids) == 3], resistance_data))
+
+    # bars_per_day = time_based_partition(bars, '1D')
+    resistance_data_per_day = list(map(lambda day: learned_resistance_data[learned_resistance_data[:,0] == day], list(range(len(bars_per_day))) ))
+
+    list(map(lambda bars, data: plt.plot_resistances(bars, data[:,1], data[:, 4:6], data[:, -2:]), bars_per_day, resistance_data_per_day))
+
     
     return 0
 

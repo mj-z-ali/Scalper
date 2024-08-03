@@ -501,13 +501,21 @@ def trades_between_bars(trades: pd.DataFrame, time_range: NDArray[np.str_]) -> p
 
     return trades.between_time(start_time=time_range[0], end_time=time_range[1], inclusive="left")
 
-def resistance_k_rmsd(bound: Callable[[NDArray[np.float64], float], NDArray[np.float64]], k: float) -> Callable[[Callable[[str], any]],  NDArray[np.float64]]:
+def resistance_line_range() -> tuple[str, Callable]:
+
+    return 'resistance_points', lambda bars, endpoints : time_ranges(bars, endpoints)
+
+def resistance_zone_range() -> tuple[str, Callable]:
+
+    return 'resistance_zone_endpoints', lambda bars, endpoints : time_ranges(bars, endpoints + np.array([1, 0]))
+
+def resistance_k_rmsd(bound: Callable, range: Callable, k: float) -> Callable[[Callable[[str], any]],  NDArray[np.float64]]:
     
-    zone_endpt_times = lambda bars, zone_endpoints : time_ranges(bars, zone_endpoints + np.array([1, 0]))
+    endpt_str, endpt_time_func = range()
 
     prices_per_zone = lambda trades, time_ranges: for_each(lambda time_range: trades_between_bars(trades, time_range)['price'], time_ranges)
 
-    get_prices_per_zone = lambda data : prices_per_zone(data('trades'), zone_endpt_times(data('bars'), data('resistance_zone_endpoints')))
+    get_prices_per_zone = lambda data : prices_per_zone(data('trades'), endpt_time_func(data('bars'), data(endpt_str)))
     
     get_levels_per_zone = lambda data : data('resistance_levels')
 
@@ -559,47 +567,44 @@ def resistance_slopes(data: Callable[[str], any]) -> NDArray[np.float64]:
 
     return slopes_2d(points_a, points_b)
 
-def resistance_concavity(data: Callable[[str], any]) -> NDArray[np.float64]:
+def resistance_parabolic_concavity(data: Callable[[str], any]) -> NDArray[np.float64]:
 
-    bar_tops, bar_bottoms, resistance_levels, resistance_parabola_points = data('bars')['top'].values, data('bars')['bottom'].values, data('resistance_levels'), data('resistance_parabola_points')
-    
-    parabola_point_1, parabola_vertex, parabola_point_2 =  resistance_parabola_points[:,0], resistance_parabola_points[:,1], resistance_parabola_points[:,2]
+    parabola_points, parabola_prices = valid_resistance_parabola_coordinates(data)
 
-    invalid_parabola_vertex = parabola_vertex == 0
-
-    valid_parabola_vertex = np.where(invalid_parabola_vertex, (parabola_point_1 + parabola_point_2) / 2, parabola_vertex)
-
-    valid_parabola_vertex_prices =  np.where(invalid_parabola_vertex, np.minimum(bar_bottoms[parabola_point_1], bar_bottoms[parabola_point_2]), bar_tops[parabola_vertex])
-
-    parabola_points_prices = np.column_stack((resistance_levels, valid_parabola_vertex_prices, resistance_levels))
-
-    parabola_points = np.column_stack((parabola_point_1, valid_parabola_vertex, parabola_point_2))
-
-    coefficients = np.array(for_each(lambda x, y: poly.fit_polynomial(x,y,2), parabola_points, parabola_points_prices))
+    coefficients = np.array(for_each(lambda x, y: poly.fit_polynomial(x,y,2), parabola_points, parabola_prices))
     
     second_derivative = 2*coefficients[:, 2]
 
-    return second_derivative
+    return np.abs(second_derivative)
+
+def valid_resistance_parabola_coordinates(data: Callable[[str], any]) -> NDArray[np.float64]:
+
+    bar_tops, resistance_levels, parabola_points = data('bars')['top'].values, data('resistance_levels'), data('resistance_parabola_points')
+
+    parabola_prices = bar_tops[parabola_points]
+
+    resistance_levels, parabola_vertex_prices, parabola_point_2_prices = parabola_prices[:,0], parabola_prices[:,1], parabola_prices[:,2]
+
+    parabola_point_1, parabola_vertex_points, parabola_point_2 =  parabola_points[:,0], parabola_points[:,1], parabola_points[:,2]
+
+    invalid_parabola_vertex_points = (parabola_vertex_points == 0)
+
+    invalid_parabola_vertex_prices = (parabola_point_2_prices < parabola_vertex_prices)
+
+    valid_parabola_vertex_points = np.where(invalid_parabola_vertex_points, (parabola_point_1 + parabola_point_2) / 2, parabola_vertex_points)
+
+    valid_parabola_vertex_prices =  np.where(invalid_parabola_vertex_points | invalid_parabola_vertex_prices, parabola_point_2_prices, parabola_vertex_prices)
+
+    return np.column_stack((parabola_point_1, valid_parabola_vertex_points, parabola_point_2)), \
+        np.column_stack((resistance_levels, valid_parabola_vertex_prices, parabola_point_2_prices))
 
 def resistance_parabolic_area(data: Callable[[str], any]) -> NDArray[np.float64]:
 
-    bar_tops, bar_bottoms, resistance_levels, resistance_parabola_points = data('bars')['top'].values, data('bars')['bottom'].values, data('resistance_levels'), data('resistance_parabola_points')
+    parabola_points, parabola_prices = valid_resistance_parabola_coordinates(data)
+
+    coefficients = np.array(for_each(lambda x, y: poly.fit_polynomial(x,y,2), parabola_points, parabola_prices))
     
-    parabola_point_1, parabola_vertex, parabola_point_2 =  resistance_parabola_points[:,0], resistance_parabola_points[:,1], resistance_parabola_points[:,2]
-
-    invalid_parabola_vertex = parabola_vertex == 0
-
-    valid_parabola_vertex = np.where(invalid_parabola_vertex, (parabola_point_1 + parabola_point_2) / 2, parabola_vertex)
-
-    valid_parabola_vertex_prices =  np.where(invalid_parabola_vertex, np.minimum(bar_bottoms[parabola_point_1], bar_bottoms[parabola_point_2]), bar_tops[parabola_vertex])
-
-    parabola_points_prices = np.column_stack((resistance_levels, valid_parabola_vertex_prices, resistance_levels))
-
-    parabola_points = np.column_stack((parabola_point_1, valid_parabola_vertex, parabola_point_2))
-
-    coefficients = np.array(for_each(lambda x, y: poly.fit_polynomial(x,y,2), parabola_points, parabola_points_prices))
-    
-    return poly.parabolic_area(coefficients, np.column_stack((parabola_point_1, parabola_point_2)))
+    return poly.parabolic_area(coefficients, np.column_stack((parabola_points[:,0], parabola_points[:,2])))
 
 def ratio(f: Callable, g: Callable) -> Callable[[Callable], NDArray[np.float64]]:
 
@@ -617,6 +622,13 @@ def abs(f: Callable) -> Callable[[Callable], NDArray[np.float64]]:
 
     return lambda data: np.abs(f(data))
 
+def add(f: Callable, g: Callable) -> Callable[[Callable], NDArray[np.float64]]:
+
+    return lambda data: f(data) + g(data)
+
+def subtract(f: Callable, g: Callable) -> Callable[[Callable], NDArray[np.float64]]:
+
+    return lambda data: f(data) - g(data)
 
 def only_green(bars: pd.DataFrame) -> NDArray[np.bool_]:
     return ~bars['red'].values
@@ -702,22 +714,20 @@ def resistance_points(relational_matrix: NDArray[np.bool_], resistance_points_ma
 
     return points
 
-
 def resistance_parabola_points(relational_matrix: NDArray[np.bool_], resistance_points: NDArray[np.int64]) -> NDArray[np.int64]:
     
     between_points_mask = between_endpoints_mask(np.sort(resistance_points))
 
     inf_relational_matrix = np.where(~between_points_mask, np.inf, relational_matrix)
 
-    mid_point_ = np.argmin(inf_relational_matrix, axis=1)
-
-    mid_point = np.where((mid_point_ == 0) & (inf_relational_matrix[:,0] == np.inf), 0, mid_point_)
+    mid_point = np.argmin(inf_relational_matrix, axis=1)
 
     points = np.column_stack((resistance_points[:,0], mid_point, resistance_points[:,1]))
 
     return points
 
-def resistance_data(bars: pd.DataFrame, trades: pd.DataFrame, breakout_consideration: Callable[[pd.DataFrame], NDArray[np.bool_]], exclude_pattern: Callable[[pd.DataFrame], NDArray[np.bool_]], op1: Callable, op2: Callable):
+
+def resistance_data(bars: pd.DataFrame, trades: pd.DataFrame, breakout_consideration: Callable[[pd.DataFrame], NDArray[np.bool_]], exclude_pattern: Callable[[pd.DataFrame], NDArray[np.bool_]], day: int, *ops: Callable):
 
     relational_matrix = matrix_operation_1d(diff_1d, bars['top'].values)
 
@@ -739,16 +749,69 @@ def resistance_data(bars: pd.DataFrame, trades: pd.DataFrame, breakout_considera
     
     data_f = lambda i : data_dict[i]
 
-    return np.column_stack((data_f('resistance_levels'), data_f('resistance_zone_endpoints'), data_f('resistance_points'), op1(data_f), op2(data_f)))
+    data = np.column_stack(for_each(lambda f: f(data_f), *ops))
+
+    return np.column_stack((np.array([day]*data.shape[0]), data_f('resistance_levels'), data_f('resistance_zone_endpoints'), data_f('resistance_points'), data))
 
 
-def resistance_data_function(bars: pd.DataFrame, trades: pd.DataFrame) -> Callable[..., NDArray[np.any]]:
+def pca(X: NDArray[np.float64], n_components: int) -> NDArray[np.float64]:
+    # from sklearn.decomposition import PCA
+    # pca_=PCA(n_components=n_components)
+    # return pca_.fit_transform(X)
+    '''
+    Perform PCA on the dataset X and reduce it to n_components dimensions.
+
+    Parameters:
+    * X, NDArray(n,d) of n samples and d features.
+    * n_components, an integer denoting number of principle
+    components to retain.
+
+    Output:
+    X_pca, NDArray(n, n_components), the transformed data with n samples
+    and n_components features.
+    '''
+
+    X_meaned = X - np.mean(X, axis=0)
+
+    print(f"X {X}")
+    print(f"X shape {X.shape}")
+
+    print(f"X_meaned {X_meaned}")
+
+    cov_matrix = np.cov(X_meaned, rowvar=False)
+
+    print(f"cov {cov_matrix}")
+
+    eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+
+    print(f"eigenvalues {eigenvalues}")
+    print(f"eigenvectors {eigenvectors}")
+
+    eigenvector_subset = eigenvectors[:, -n_components:]
+
+    X_pca = eigenvector_subset.transpose() @ X_meaned.transpose()
+
+    return X_pca.transpose()
+
+def all_components(data: list) -> NDArray[np.float64]:
+
+    return np.row_stack(data)
+
+def pca_components(n_components: int) -> Callable:
+
+    return lambda data: np.column_stack((np.row_stack(data)[:,:6], pca(np.row_stack(data)[:,6:], n_components)))
+
+def resistance_data_function(bars: pd.DataFrame, trades: pd.DataFrame, components: Callable) -> Callable[..., NDArray[np.any]]:
 
     bars_per_day = time_based_partition(bars, '1D')
 
     trades_per_day = time_based_partition(trades, '1D')
 
-    return lambda breakout_consideration, exclude_pattern, op1, op2: for_each(partial(resistance_data, breakout_consideration=breakout_consideration, exclude_pattern=exclude_pattern, op1=op1, op2=op2), bars_per_day, trades_per_day)
+    days = list(range(len(bars_per_day)))
+
+    return bars_per_day, \
+        lambda breakout_consideration, exclude_pattern, *ops: \
+            components(for_each(lambda bars, trades, day: resistance_data(bars,trades,breakout_consideration, exclude_pattern, day, ops), bars_per_day, trades_per_day, days))
 
 '''
 bars_ = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
