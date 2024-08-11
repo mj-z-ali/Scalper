@@ -30,32 +30,25 @@ def main() -> int:
 
     data_client = client.establish_client(params=params)
 
-    # create_bars_and_trades_csv(data_client=data_client, bar_interval=5, bar_unit=TimeFrameUnit.Minute, start_date="2024-06-17", end_date="2024-06-28")
- 
-    bars_ = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
+    # create_bars_and_trades_csv(data_client=data_client, bar_interval=5, bar_unit=TimeFrameUnit.Minute, start_date="2024-05-17", end_date="2024-08-17")
+    
+    bars_ = pd.read_csv('2024-05-17-to-2024-08-17-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
 
     bars = analyze.append_top_bottom_columns(bars_)
     
-    trades = pd.read_csv('2024-06-17-to-2024-06-28-tick.csv', parse_dates=['timestamp'], index_col='timestamp')
+    trades = pd.read_csv('2024-05-17-to-2024-08-17-tick.csv', parse_dates=['timestamp'], index_col='timestamp')
     
     bars_per_day, resistance_data_function = analyze.resistance_data_function(bars, trades, pca_components(2))
 
-    resistance_data = resistance_data_function(all_bars, exclude_green_red_pattern, resistance_parabolic_area, resistance_parabolic_concavity, resistance_euclidean_1d, resistance_euclidean_2d, resistance_k_rmsd(lower_bound,resistance_zone_range,2), resistance_relative_perc_diff, abs(resistance_slopes))
-
-    _, resistance_data_function_2 = analyze.resistance_data_function(bars,trades, all_components)
-
-    resistance_data_2 = resistance_data_function_2(all_bars, exclude_green_red_pattern, resistance_relative_perc_diff)
-
-    # resistance_k_means_data =  np.column_stack((resistance_data[:,-2], (resistance_data_2[:,-1]+0.1) / resistance_data[:,-1]))
+    resistance_data = resistance_data_function(all_bars, exclude_green_red_pattern, resistance_parabolic_area, resistance_parabolic_concavity, resistance_euclidean_1d, resistance_euclidean_2d, resistance_k_rmsd(lower_bound, resistance_zone_range, 2), resistance_relative_perc_diff, abs(resistance_slopes))
 
     resistance_k_means_data = resistance_data[:,-2:]
-
 
     # resistance_k_means_data = reduce(lambda acc, x: np.row_stack((acc, x[:, -2:])), resistance_data, np.empty((0,2)))
     
     centroids, labels = km.train(resistance_k_means_data, 10, 0, 100)
 
-    learned_resistance_data = resistance_data[labels==7]
+    learned_resistance_data = resistance_data[labels==6]
 
     # learned_resistance_data = list(map(lambda data : data[km.inference(data[:,-2:], centroids) == 3], resistance_data))
 
