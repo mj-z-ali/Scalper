@@ -58,6 +58,7 @@ def main() -> int:
     list(map(lambda bars, data: plt.plot_resistances(bars, data[:,1], data[:, 4:6], data[:, -2:]), bars_per_day, resistance_data_per_day))
 
     
+    
     return 0
 
 
