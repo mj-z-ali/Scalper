@@ -813,56 +813,35 @@ def resistance_data_function(bars: pd.DataFrame, trades: pd.DataFrame, component
         lambda breakout_consideration, exclude_pattern, *ops: \
             components(for_each(lambda bars, trades, day: resistance_data(bars,trades,breakout_consideration, exclude_pattern, day, ops), bars_per_day, trades_per_day, days))
 
-'''
-bars_ = pd.read_csv('2024-06-17-to-2024-06-28-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
 
-bars = append_top_bottom_columns(bars_)
 
-bar_top_values =  time_based_column_partition(bars, '1D', 'top')
 
-euclid_dist_1d = compose_functions([for_each, apply_upper_matrix_tri, matrix_operation_1d, euclidean_distances_1d])
 
-print(f"euclidean dist {euclid_dist_1d(bar_top_values)}")
-print(euclid_dist_1d(bar_top_values).shape)
+def for_each(f: Callable[..., any], *array: list[any]) -> list[any]:
+    '''
+    Apply function f on each element in array.
 
-perc_diff_1d = compose_functions([for_each, apply_upper_matrix_tri, matrix_operation_1d, relative_perc_1d])
+    Parameters: 
+    * Function f that must accept each element in each corresponding array as input.
+    * An array, or multiple arrays, of any elements but must be same size and each element
+    must be acceptable input to function f.
 
-perc_diff_top_vals = perc_diff_1d(bar_top_values)
-print(f"perc diff {perc_diff_top_vals}")
-print(perc_diff_top_vals.shape)
+    Output: an NDArray of results from f.
+    '''
+    return list(map(f, *array))
 
-indices_mat = euclid_dist_1d(for_each(lambda t: np.arange(t.shape[0]),bar_top_values))
 
-perc_slope = perc_diff_top_vals / indices_mat
+def non_empty_df_partition(df_partition_generator: map) -> filter:
 
-print(f"perc slope {perc_slope}")
-print(perc_slope.shape)
+    return filter(lambda df_partition: not df_partition.dropna().empty, df_partition_generator)
 
-top_diffs_2d = for_each(lambda t: np.column_stack((np.arange(t.shape[0]),t)),bar_top_values)
+def time_based_df_partition(df: pd.DataFrame, interval: str) -> list[pd.DataFrame]:
+    # Partition a single dataframe into a list of dataframes based on time interval.
 
-euclid_dist_2d = compose_functions([for_each, apply_upper_matrix_tri, matrix_operation_xd, euclidean_distances_xd])
+    return list(non_empty_df_partition(map(lambda df_pair: df_pair[1], df.resample(interval))))
 
-print(f"euclid dist 2d {euclid_dist_2d(top_diffs_2d)}")
-print(euclid_dist_2d(top_diffs_2d).shape)
+def no_name(bars: pd.DataFrame, trades: pd.DataFrame) -> Callable:
 
-slopes = compose_functions([for_each, matrix_operation_xd, slopes_2d])
+    bars_per_day, trades_per_day = tuple(for_each(lambda df: time_based_df_partition(df, '1D'), [bars, trades]))
 
-print(f"slopes {slopes(top_diffs_2d)}")
-print(slopes(top_diffs_2d).shape)
-
-bar_dfs = time_based_partition(bars,"1D")
-first_bar_df = bar_dfs[0]
-first_bar_df_green_mask = ~first_bar_df['red'].values
-
-green_breakouts = breakouts_mask(slopes(top_diffs_2d)[0], first_bar_df_green_mask)
-first_upper_green_breakouts = green_breakouts(upper_matrix_tri_mask, last_occurence_indices)
-print(np.argmax(first_upper_green_breakouts, axis=1))
-print(first_bar_df['top'].values)
-
-bar_time_range = time_ranges(first_bar_df, np.array([[0,2],[3,9],[4,8]]))
-
-print(bar_time_range)
-
-print(first_bar_df.between_time(start_time=bar_time_range[0,0], end_time=bar_time_range[0,1]))
-
-'''
+    return lambda *resistance_operations: 
