@@ -48,6 +48,10 @@ def infinity_barrier(columns: NDArray[np.uint64], l: NDArray[np.uint64], r: NDAr
     return lambda q, i : np.where(m, i, q), \
            lambda q, i : np.where(e, i, q)
 
-def first_lower_vertex(q: NDArray[np.float64], f: Callable[[NDArray[np.float64], np.float64], NDArray[np.float64]]) -> NDArray[np.uint64]:
+def lower_vertex(q: NDArray[np.float64], f: Callable[[NDArray[np.float64], np.float64], NDArray[np.float64]]) -> NDArray[np.uint64]:
 
     return np.argmin(f(q, np.inf), axis=1)
+
+def upper_vertex(q: NDArray[np.float64], f: Callable[[NDArray[np.float64], np.float64], NDArray[np.float64]]) -> NDArray[np.uint64]:
+
+    return np.argmax(f(q, -np.inf), axis=1)
