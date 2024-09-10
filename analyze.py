@@ -11,9 +11,9 @@ def lower_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
 
     return np.tril(np.ones(s, dtype=bool), k=-1)
 
-def left_mask(r: NDArray[np.float64]) -> NDArray[np.bool_]:
+def left_mask(q: NDArray[np.float64]) -> NDArray[np.bool_]:
 
-    return (r > 0) & lower_tri_mask(r.shape)
+    return (q > 0) & lower_tri_mask(q.shape)
 
 def right_barrier(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
@@ -21,9 +21,9 @@ def right_barrier(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
     return default_point(np.argmax(m, axis=1))
 
-def right_mask(r: NDArray[np.float64]) -> NDArray[np.bool_]:
+def right_mask(q: NDArray[np.float64]) -> NDArray[np.bool_]:
 
-    return (r > 0) & upper_tri_mask(r.shape)
+    return (q > 0) & upper_tri_mask(q.shape)
 
 def left_point(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
@@ -35,6 +35,19 @@ def right_point(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
     return np.argmax(m, axis=1)
 
-def validate(l: NDArray[np.uint64], r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
+def validate(i: np.uint64, l: NDArray[np.uint64], r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
-    return (r <= b) & ((r - l) > 3)
+    return (r <= b) & ((r - l) > i)
+
+def infinity_barrier(columns: NDArray[np.uint64], l: NDArray[np.uint64], r: NDArray[np.uint64]) -> tuple[Callable, Callable]:
+
+    m = (columns <= l[:,None]) | (columns >= r[:,None])
+
+    e = m | np.eye(len(columns), dtype=bool)
+
+    return lambda q, i : np.where(m, i, q), \
+           lambda q, i : np.where(e, i, q)
+
+def first_lower_vertex(q: NDArray[np.float64], f: Callable[[NDArray[np.float64], np.float64], NDArray[np.float64]]) -> NDArray[np.uint64]:
+
+    return np.argmin(f(q, np.inf), axis=1)
