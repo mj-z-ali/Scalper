@@ -4,37 +4,41 @@ from typing import Callable
 from numpy.typing import NDArray
 
 
-def validate(i: np.uint64, l: NDArray[np.uint64], r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
+def barrier_mask(columns: NDArray[np.uint64], l: NDArray[np.uint64], i: NDArray[np.uint64], r: NDArray[np.uint64]) -> tuple[Callable, Callable, Callable]:
 
-    return (r <= b) & ((r - l) > i)
+    m = (columns <= l[:,None]) | (columns >= r[:,None])
 
-def barrier_mask(columns: NDArray[np.uint64], l: NDArray[np.uint64], r: NDArray[np.uint64]) -> tuple[Callable, Callable]:
+    return lambda : m, \
+           lambda : m | (columns == i[:,None]), \
+           lambda n, j : n | (columns == j[:,None])
 
-    return lambda : (columns <= l[:,None]) | (columns >= r[:,None]), \
-           lambda m, i : m | (columns == i[:,None])
-
-def upper_vertices(q: NDArray[np.float64], f: Callable[[NDArray[np.float64], np.float64], NDArray[np.float64]]) -> NDArray[np.uint64]:
+def upper_vertices(q: NDArray[np.float64], f: Callable, g: Callable) -> tuple[Callable, Callable]:
     
-    return lambda : np.argmax(np.where(m, -np.inf, q), axis=1), \
-           lambda v : np.argmax(np.where(f(m, v), -np.inf, q), axis=1)
+    m = f()
 
-def lower_vertices(q: NDArray[np.float64], f: Callable[[NDArray[np.float64], np.float64], NDArray[np.float64]]) -> NDArray[np.uint64]:
+    return lambda : np.argmax(np.where(m, -np.inf, q), axis=1), \
+           lambda v : np.argmax(np.where(g(m, v), -np.inf, q), axis=1)
+
+def lower_vertices(q: NDArray[np.float64], f: Callable, g: Callable) -> tuple[Callable, Callable]:
+    
+    m = f()
 
     return lambda : np.argmin(np.where(m, np.inf, q), axis=1), \
-           lambda v : np.argmin(np.where(f(m, v), np.inf, q), axis=1)
+           lambda v : np.argmin(np.where(g(m, v), np.inf, q), axis=1)
+
+def vertices(columns: NDArray[np.uint64], l: NDArray[np.uint64], i: NDArray[np.uint64], r: NDArray[np.uint64]) -> tuple[Callable, Callable]:
     
-def vertices():
+    t = barrier_mask(columns, l, i, r)
 
-    m = f[0]()
+    return lambda q: vertices_pair(upper_vertices(q, t[0], t[2])), \
+           lambda q: vertices_pair(lower_vertices(q, t[1], t[2]))
 
-    return lambda lower_vertices(m, f[1]),
-           lambda upper_vertices(f[1](filteredresisanceindices), f[1])
+def vertices_pair(t: [Callable, Callable]) -> tuple[NDArray[np.uint64]]:
 
+    first_vertices = t[0]()
+    second_vertices = t[1](first_vertices)
 
-v=call vertices
-upper_vertices = v[1]()
-first_upper = upper_vertices[0]()
-second_upper  = upper_vertices[1](first_upper)
+    return first_vertices, second_vertices
 
 
 def upper_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
@@ -79,6 +83,25 @@ def barrier_points(q: NDArray[np.float64]) -> Callable[[Callable], NDArray[np.ui
 
     return lambda f: f(m)
 
+def initial_right_points_mask(q: NDArray[np.float64]) -> NDArray[np.bool_]:
+
+    return right_mask(q > 0)
+
+def next_right_points_mask(columns: NDArray[np.uint64], m: NDArray[np.bool_], r: NDArray[np.uint64]) -> NDArray[np.bool_]:
+
+    return m & (columns != r[:,None])
+    
+def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+
+    return first_points(m)
+
+def initial_validate(i: np.uint64, l: NDArray[np.uint64], r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
+
+    return (r <= b) & ((r - l) > i)
+
+def next_validate(r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
+
+    return (r <= b)
 
 def recursive_fun():
 
