@@ -40,6 +40,15 @@ def vertices_pair(t: [Callable, Callable]) -> tuple[NDArray[np.uint64]]:
 
     return first_vertices, second_vertices
 
+def inner_points_matrix(f: Callable) -> NDArray[np.float64]:
+
+    m = f()
+
+    return lambda q: np.where(m, 0, q)
+
+def k_rmsd(k: np.float64, q: NDArray[np.float64], l: NDArray[np.uint64], r: NDArray[np.uint64]) -> NDArray[np.float64]:
+
+    return np.power(np.sqrt(np.divide(np.sum(q**2, axis=1), r-l)), 1/k)
 
 def upper_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
 
