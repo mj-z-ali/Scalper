@@ -10,26 +10,20 @@ def fit_polynomial(x: NDArray[np.float64], y: NDArray[np.float64], degree: int) 
     a least-squares problem (X^T X)a = X^T y
     
     Parameters:
-    * x, an NDArray(n,) of n number of x-points.
-    * y, an NDarray(n,) of n number of y-points.
+    * x, an NDArray(r,n) of n number of x-points for r data sets.
+    * y, an NDarray(r,n) of n number of y-points forr r data sets.
     * degree, an int to denote the degree of the polynomial.
 
     Output:
-    The best-fit coeffients of type NDArray(degree+1,) such that NDArray(i)
-    is coefficient of x^i for all i in NDArray.
+    The best-fit coeffients of type NDArray(r,degree+1) such that NDArray(r,i)
+    is coefficient of x^i for all i in NDArray for data set r.
     '''
-    print(f"x: {x} \n y: {y} ")
-    # Designe matrix
-    X = np.vander(x, degree+1, increasing=True)
-
-    X_T = X.T
+    # Design matrix
+    Xs = np.array([np.vander(x_row, degree + 1, increasing=True) for x_row in x])
 
     # Compute coefficients "a" using the formula:
-    # (X^T X)a = X^T y -> a = (X^T X)^-1 X^T y
-    coefficients = np.linalg.inv(X_T @ X) @ X_T @ y
-    print(f"coefficients {coefficients}")
-    print(f"f''(x) = {2*coefficients[2]}")
-    return coefficients
+    # (X^T X)a = X^T y -> a = (X^T X)^-1 X^T y   
+    return np.array([np.linalg.inv(Xi.T @ Xi) @ Xi.T @ yi for Xi, yi in zip(Xs, y)])
 
 def parabolic_area(coefficients: NDArray[np.float64], x: NDArray[np.int64]) -> NDArray[np.float64]:
     '''
