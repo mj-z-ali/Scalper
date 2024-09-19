@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Callable
 from numpy.typing import NDArray
+import polynomial as poly
 
 
 def barrier_mask(columns: NDArray[np.uint64], l: NDArray[np.uint64], i: NDArray[np.uint64], r: NDArray[np.uint64]) -> tuple[Callable, Callable, Callable]:
@@ -49,6 +50,12 @@ def inner_points_matrix(f: Callable) -> NDArray[np.float64]:
 def k_rmsd(k: np.float64, q: NDArray[np.float64], l: NDArray[np.uint64], r: NDArray[np.uint64]) -> NDArray[np.float64]:
 
     return np.power(np.sqrt(np.divide(np.sum(q**2, axis=1), r-l)), 1/k)
+
+def parabolic_area(l_x: NDArray[np.uint64], v_x: NDArray[np.uint64], r_x: NDArray[np.uint64], i_p: NDArray[np.float64], v_p: NDArray[np.float64]) -> NDArray[np.float64]:
+
+    coefficients = poly.fit_polynomial(np.column_stack((l_x, v_x, r_x)), np.column_stack((i_p, v_p, i_p)), 2)
+
+    return poly.parabolic_area(coefficients, np.column_stack((l_x, r_x)))
 
 def upper_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
 
