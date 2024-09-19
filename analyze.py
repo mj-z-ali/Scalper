@@ -51,11 +51,13 @@ def k_rmsd(k: np.float64, q: NDArray[np.float64], l: NDArray[np.uint64], r: NDAr
 
     return np.power(np.sqrt(np.divide(np.sum(q**2, axis=1), r-l)), 1/k)
 
-def parabolic_area(l_x: NDArray[np.uint64], v_x: NDArray[np.uint64], r_x: NDArray[np.uint64], i_p: NDArray[np.float64], v_p: NDArray[np.float64]) -> NDArray[np.float64]:
+def parabolic_area_enclosed(l_x: NDArray[np.uint64], v_x: NDArray[np.uint64], r_x: NDArray[np.uint64], i_p: NDArray[np.float64], v_p: NDArray[np.float64]) -> NDArray[np.float64]:
 
     coefficients = poly.fit_polynomial(np.column_stack((l_x, v_x, r_x)), np.column_stack((i_p, v_p, i_p)), 2)
 
-    return poly.parabolic_area(coefficients, np.column_stack((l_x, r_x)))
+    return ((i_p * r_x) - (i_p * l_x))  - poly.parabolic_area(coefficients, np.column_stack((l_x, r_x)))
+
+
 
 def upper_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
 
