@@ -43,7 +43,29 @@ def parabolic_area(coefficients: NDArray[np.float64], x: NDArray[np.int64]) -> N
 
     x_x_sq_x_cb = np.array([np.diff(x), np.diff(x**2), np.diff(x**3)]).transpose(1,0,2)
 
-    areas = np.einsum('ij,ijk->i', c, np.abs(x_x_sq_x_cb))
+    areas = np.einsum('ij,ijk->i', c, x_x_sq_x_cb)
+
+    return areas
+
+def cubic_area(coefficients: NDArray[np.float64], x: NDArray[np.int64]) -> NDArray[np.float64]:
+    '''
+    Computes the absolute area of a parabola using the formula
+    A = a/4(x_1^4 - x_0^4) + b/3(x_1^3 - x_0^3) + c/2(x_1^2 - x_0^2) + d(x_1 - x_0), 
+    which is the formula derived from the definite integral[x_0,x_1] 
+    of ax^3 + bx^2 + cx + d.
+
+    Parameters: 
+    * coefficients, an NDArray(n,4) of coefficients [d,c,b,a] for n cubic functions.
+    * x, an NDArray(n,2) of x ranges [x_0, x_1] for n cubic functions.
+
+    Output: 
+    An NDArray(n,) of floating points denoting the areas of each cubic function.
+    '''
+    c = coefficients * np.array([1,1/2,1/3,1/4])
+
+    x_x_sq_x_cb = np.array([np.diff(x), np.diff(x**2), np.diff(x**3), np.diff(x**4)]).transpose(1,0,2)
+
+    areas = np.einsum('ij,ijk->i', c, x_x_sq_x_cb)
 
     return areas
 
