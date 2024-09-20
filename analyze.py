@@ -57,9 +57,20 @@ def parabolic_area_enclosed(l_x: NDArray[np.uint64], v_x: NDArray[np.uint64], r_
 
     return ((i_p * r_x) - (i_p * l_x))  - poly.parabolic_area(coefficients, np.column_stack((l_x, r_x)))
 
+def sort_cubic_coordinates(v_x_0: NDArray[np.uint64], v_x_1: NDArray[np.uint64]) -> tuple[Callable, Callable]:
+
+    v_x = np.column_stack((v_x_0, v_x_1))
+
+    v_x_s = np.argsort(v_x, axis=1)
+
+    return lambda : np.take_along_axis(v_x, v_x_s, axis=1), \
+           lambda v_0, v_1: np.take_along_axis(np.column_stack((v_0, v_1)), v_x_s, axis=1)
+
 def cubic_area_enclosed(l_x: NDArray[np.uint64], v_x_0: NDArray[np.uint64], v_x_1: NDArray[np.uint64], r_x: NDArray[np.uint64], i_p: NDArray[np.float64], v_p_0: NDArray[np.float64], v_p_1: NDArray[np.float64]) -> NDArray[np.float64]:
 
-    coefficients = poly.fit_polynomial(np.column_stack((l_x, v_x_0, v_x_1, r_x)), np.column_stack((i_p, v_p_0, v_p_1, i_p)), 3)
+    v = sort_cubic_coordinates(v_x_0, v_x_1)
+
+    coefficients = poly.fit_polynomial(np.column_stack((l_x, v[0](), r_x)), np.column_stack((i_p, v[1](v_p_0, v_p_1), i_p)), 3)
 
     return ((i_p * r_x) - (i_p * l_x))  - poly.parabolic_area(coefficients, np.column_stack((l_x, r_x)))
 
