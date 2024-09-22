@@ -72,7 +72,7 @@ def cubic_area_enclosed(l_x: NDArray[np.uint64], v_x_0: NDArray[np.uint64], v_x_
 
     coefficients = poly.fit_polynomial(np.column_stack((l_x, v[0](), r_x)), np.column_stack((i_p, v[1](v_p_0, v_p_1), i_p)), 3)
 
-    return ((i_p * r_x) - (i_p * l_x))  - poly.parabolic_area(coefficients, np.column_stack((l_x, r_x)))
+    return ((i_p * r_x) - (i_p * l_x))  - poly.cubic_area(coefficients, np.column_stack((l_x, r_x)))
 
 def upper_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
 
