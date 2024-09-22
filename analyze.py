@@ -78,6 +78,14 @@ def euclidean_distance(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64], i_y: ND
 
     return np.sqrt(((v_x - i_x)**2) + ((v_y - i_y)**2))
 
+def slope(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64], i_y: NDArray[np.float64], v_y: NDArray[np.float64]) -> NDArray[np.float64]:
+
+    return np.abs(np.divide((v_y - i_y), (v_x - i_x)))
+
+def percentage_diff(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64], i_y: NDArray[np.float64], v_y: NDArray[np.float64]) -> NDArray[np.float64]:
+
+    return np.abs(np.divide((v_x - i_x), i_x))
+
 def upper_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
 
     return np.triu(np.ones(s, dtype=bool), k=1)
