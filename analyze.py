@@ -51,11 +51,11 @@ def k_rmsd(k: np.float64, q: NDArray[np.float64], l: NDArray[np.uint64], r: NDAr
 
     return np.power(np.sqrt(np.divide(np.sum(q**2, axis=1), r-l)), 1/k)
 
-def parabolic_area_enclosed(l_x: NDArray[np.uint64], v_x: NDArray[np.uint64], r_x: NDArray[np.uint64], i_p: NDArray[np.float64], v_p: NDArray[np.float64]) -> NDArray[np.float64]:
+def parabolic_area_enclosed(l_x: NDArray[np.uint64], v_x: NDArray[np.uint64], r_x: NDArray[np.uint64], i_y: NDArray[np.float64], v_y: NDArray[np.float64]) -> NDArray[np.float64]:
 
-    coefficients = poly.fit_polynomial(np.column_stack((l_x, v_x, r_x)), np.column_stack((i_p, v_p, i_p)), 2)
+    coefficients = poly.fit_polynomial(np.column_stack((l_x, v_x, r_x)), np.column_stack((i_y, v_y, i_y)), 2)
 
-    return ((i_p * r_x) - (i_p * l_x))  - poly.parabolic_area(coefficients, np.column_stack((l_x, r_x)))
+    return ((i_y * r_x) - (i_y * l_x))  - poly.parabolic_area(coefficients, np.column_stack((l_x, r_x)))
 
 def sort_cubic_coordinates(v_x_0: NDArray[np.uint64], v_x_1: NDArray[np.uint64]) -> tuple[Callable, Callable]:
 
@@ -66,13 +66,17 @@ def sort_cubic_coordinates(v_x_0: NDArray[np.uint64], v_x_1: NDArray[np.uint64])
     return lambda : np.take_along_axis(v_x, v_x_s, axis=1), \
            lambda v_0, v_1: np.take_along_axis(np.column_stack((v_0, v_1)), v_x_s, axis=1)
 
-def cubic_area_enclosed(l_x: NDArray[np.uint64], v_x_0: NDArray[np.uint64], v_x_1: NDArray[np.uint64], r_x: NDArray[np.uint64], i_p: NDArray[np.float64], v_p_0: NDArray[np.float64], v_p_1: NDArray[np.float64]) -> NDArray[np.float64]:
+def cubic_area_enclosed(l_x: NDArray[np.uint64], v_x_0: NDArray[np.uint64], v_x_1: NDArray[np.uint64], r_x: NDArray[np.uint64], i_y: NDArray[np.float64], v_y_0: NDArray[np.float64], v_y_1: NDArray[np.float64]) -> NDArray[np.float64]:
 
     v = sort_cubic_coordinates(v_x_0, v_x_1)
 
-    coefficients = poly.fit_polynomial(np.column_stack((l_x, v[0](), r_x)), np.column_stack((i_p, v[1](v_p_0, v_p_1), i_p)), 3)
+    coefficients = poly.fit_polynomial(np.column_stack((l_x, v[0](), r_x)), np.column_stack((i_y, v[1](v_y_0, v_y_1), i_y)), 3)
 
-    return ((i_p * r_x) - (i_p * l_x))  - poly.cubic_area(coefficients, np.column_stack((l_x, r_x)))
+    return ((i_y * r_x) - (i_y * l_x))  - poly.cubic_area(coefficients, np.column_stack((l_x, r_x)))
+
+def euclidean_distance(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64], i_y: NDArray[np.float64], v_y: NDArray[np.float64]) -> NDArray[np.float64]:
+
+    return np.sqrt(((v_x - i_x)**2) + ((v_y - i_y)**2))
 
 def upper_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
 
