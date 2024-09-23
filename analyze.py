@@ -34,7 +34,7 @@ def vertices(columns: NDArray[np.uint64], l: NDArray[np.uint64], i: NDArray[np.u
     return lambda q: vertices_pair(upper_vertices(q, t[0], t[2])), \
            lambda q: vertices_pair(lower_vertices(q, t[1], t[2]))
 
-def vertices_pair(t: [Callable, Callable]) -> tuple[NDArray[np.uint64]]:
+def vertices_pair(t: tuple[Callable, Callable]) -> tuple[NDArray[np.uint64]]:
 
     first_vertices = t[0]()
     second_vertices = t[1](first_vertices)
@@ -82,9 +82,9 @@ def slope(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64], i_y: NDArray[np.floa
 
     return np.abs(np.divide((v_y - i_y), (v_x - i_x)))
 
-def percentage_diff(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64], i_y: NDArray[np.float64], v_y: NDArray[np.float64]) -> NDArray[np.float64]:
+def percentage_diff(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64]) -> NDArray[np.float64]:
 
-    return np.abs(np.divide((v_x - i_x), i_x))
+    return np.abs(100*np.divide((v_x - i_x), i_x))
 
 def upper_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
 
@@ -140,9 +140,9 @@ def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
     return first_points(m)
 
-def initial_validate(i: np.uint64, l: NDArray[np.uint64], r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
+def initial_validate(c: np.uint64, l: NDArray[np.uint64], r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
-    return (r <= b) & ((r - l) > i)
+    return (r <= b) & ((r - l) > c)
 
 def next_validate(r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
