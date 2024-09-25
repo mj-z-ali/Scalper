@@ -4,48 +4,40 @@ from typing import Callable
 from numpy.typing import NDArray
 import polynomial as poly
 
+def set_mask_coordinates(columns: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
-def barrier_mask(columns: NDArray[np.uint64], l: NDArray[np.uint64], i: NDArray[np.uint64], r: NDArray[np.uint64]) -> tuple[Callable, Callable, Callable]:
+    return lambda l,r: (columns <= l[:,None]) | (columns >= r[:,None]), \
+           lambda m,c: m | (columns == c[:,None]), \
+           lambda m,c: m & (columns != c[:,None])
 
-    m = (columns <= l[:,None]) | (columns >= r[:,None])
+def preliminary_data(columns: NDArray[np.uint64], q_t: NDArray[np.float64], q_b: NDArray[np.float64], l: NDArray[np.uint64], i: NDArray[np.uint64], r: NDArray[np.uint64], f: Callable, g: Callable) -> tuple[Callable, Callable, Callable]:
 
-    return lambda : m, \
-           lambda : m | (columns == i[:,None]), \
-           lambda n, j : n | (columns == j[:,None])
+    m = f(l,r)
+    m_i = g(m,i) 
 
-def upper_vertices(q: NDArray[np.float64], f: Callable, g: Callable) -> tuple[Callable, Callable]:
+    return lambda : upper_vertices(q_t, m_i, g), \
+           lambda : lower_vertices(q_b, m, g), \
+           lambda : inner_points_matrix(q_t, m)
+
+def upper_vertices(q: NDArray[np.float64], m: NDArray[np.bool_], f: Callable) -> tuple[NDArray[np.uint64], NDArray[np.uint64]]:
     
-    m = f()
+    first_vertices = np.argmax(np.where(m, -np.inf, q), axis=1)
 
-    return lambda : np.argmax(np.where(m, -np.inf, q), axis=1), \
-           lambda v : np.argmax(np.where(g(m, v), -np.inf, q), axis=1)
-
-def lower_vertices(q: NDArray[np.float64], f: Callable, g: Callable) -> tuple[Callable, Callable]:
-    
-    m = f()
-
-    return lambda : np.argmin(np.where(m, np.inf, q), axis=1), \
-           lambda v : np.argmin(np.where(g(m, v), np.inf, q), axis=1)
-
-def vertices(columns: NDArray[np.uint64], l: NDArray[np.uint64], i: NDArray[np.uint64], r: NDArray[np.uint64]) -> tuple[Callable, Callable]:
-    
-    t = barrier_mask(columns, l, i, r)
-
-    return lambda q: vertices_pair(upper_vertices(q, t[0], t[2])), \
-           lambda q: vertices_pair(lower_vertices(q, t[1], t[2]))
-
-def vertices_pair(t: tuple[Callable, Callable]) -> tuple[NDArray[np.uint64]]:
-
-    first_vertices = t[0]()
-    second_vertices = t[1](first_vertices)
+    second_vertices = np.argmax(np.where(f(m, first_vertices), -np.inf, q), axis=1)
 
     return first_vertices, second_vertices
 
-def inner_points_matrix(f: Callable) -> NDArray[np.float64]:
+def lower_vertices(q: NDArray[np.float64], m: NDArray[np.bool_], f: Callable) -> tuple[NDArray[np.uint64], NDArray[np.uint64]]:
+    
+    first_vertices = np.argmin(np.where(m, np.inf, q), axis=1)
 
-    m = f()
+    second_vertices = np.argmin(np.where(f(m, first_vertices), np.inf, q), axis=1)
 
-    return lambda q: np.where(m, 0, q)
+    return first_vertices, second_vertices
+
+def inner_points_matrix(q: NDArray[np.float64], m: NDArray[np.bool_]) -> NDArray[np.float64]:
+
+    return np.where(m, 0, q)
 
 def k_rmsd(k: np.float64, q: NDArray[np.float64], l: NDArray[np.uint64], r: NDArray[np.uint64]) -> NDArray[np.float64]:
 
