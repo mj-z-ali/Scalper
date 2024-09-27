@@ -132,9 +132,9 @@ def initial_validate(c: np.uint64, lb: NDArray[np.uint64], rb: NDArray[np.uint64
 
     return (rb - lb) > c
 
-def next_validate(r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
+def next_validate(r: NDArray[np.uint64], rb: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
-    return (r <= b)
+    return (r <= rb)
 
 
 df 
