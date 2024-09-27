@@ -120,17 +120,13 @@ def barrier_points(q: NDArray[np.float64]) -> tuple[NDArray[np.uint64], NDArray[
 
     return left_barrier_points(m), right_barrier_points(m)
 
-def initial_right_points_mask(q: NDArray[np.float64]) -> NDArray[np.bool_]:
-
-    return right_mask(q > 0)
-
 def next_right_points_mask(columns: NDArray[np.uint64], m: NDArray[np.bool_], r: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
     return m & (columns != r[:,None])
     
-def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+def right_points(q: NDArray[np.float64]) -> NDArray[np.uint64]:
 
-    return first_points(m)
+    return first_points(right_mask(q > 0))
 
 def initial_validate(c: np.uint64, l: NDArray[np.uint64], r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
