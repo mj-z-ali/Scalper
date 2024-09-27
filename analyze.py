@@ -123,10 +123,14 @@ def barrier_points(q: NDArray[np.float64]) -> tuple[NDArray[np.uint64], NDArray[
 def next_right_points_mask(columns: NDArray[np.uint64], m: NDArray[np.bool_], r: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
     return m & (columns != r[:,None])
-    
-def right_points(q: NDArray[np.float64]) -> NDArray[np.uint64]:
 
-    return first_points(right_mask(q > 0))
+def right_points_mask(q: NDArray[np.float64]) -> NDArray[np.bool_]:
+
+    return right_mask(q > 0)
+
+def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+
+    return first_points(m)
 
 def initial_validate(c: np.uint64, lb: NDArray[np.uint64], rb: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
@@ -145,7 +149,15 @@ def initial_points(df: pd.DataFrame):
     top = df['top'].values
     bottom = df['bottom'].values
     high = df['high'].values
+    
+    q_t = diff_matrix(top, top)
+    q_b = diff_matrix(top, bottom)
+    q_h = diff_matrix(top, high)
 
+    lb,rb = barrier_points(q_t)
+    r = right_points(q_h)
+
+    initial_validate(3, lb, rb)
 
 
 df 
