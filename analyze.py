@@ -74,9 +74,9 @@ def slope(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64], i_y: NDArray[np.floa
 
     return np.abs(np.divide((v_y - i_y), (v_x - i_x)))
 
-def percentage_diff(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64]) -> NDArray[np.float64]:
+def percentage_diff(i_y: NDArray[np.uint64], v_y: NDArray[np.uint64]) -> NDArray[np.float64]:
 
-    return np.abs(100*np.divide((v_x - i_x), i_x))
+    return 100*np.divide(np.abs(v_y - i_y), i_y)
 
 def upper_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
 
@@ -153,18 +153,61 @@ def initial_points(df: pd.DataFrame):
     q_t = diff_matrix(top, top)
     q_b = diff_matrix(top, bottom)
     q_h = diff_matrix(top, high)
+    i = np.arange(len(top))
 
     lb,rb = barrier_points(q_t)
-    r = right_points(q_h)
+    r_m = right_points_mask(q_h)
+    r = right_points(r_m)
 
-    initial_validate(3, lb, rb)
+    vld = initial_validate(3, lb, rb)
+
+    return lb[vld], r[vld], rb[vld], r_m[vld], i[vld], q_t[vld], q_b[vld]
 
 
-df 
-df[top]
-df[bottom]
-r_mask_0 = 
+def recursive_fun(columns,lb,r,rb,r_m,i,q_t,q_b):
 
-def recursive_fun():
+    vld = next_validate(r,rb)
 
-    
+    mask_funs = set_mask_coordinates(columns)
+
+    p_data = preliminary_data(q_t[vld],q_b[vld],lb[vld],i[vld],r[vld],mask_funs[0],mask_funs[1])
+
+    uv_x_0, uv_x_1 = p_data[0]()
+
+    lv_x_0, lv_x_1 = p_data[1]()
+
+    uv_y_0, uv_y_1 = df['top'].values[uv_x_0], df['top'].values[uv_x_1]
+
+    lv_y_0, lv_y_1 = df['bottom'].values[lv_x_0], df['bottom'].values[lv_y_1]
+
+    i_y = df['top'].values[i[vld]]
+
+    k_rmsd(2, p_data[2](),lb,r)
+
+    parabolic_area_enclosed(lb,uv_x_0,r,i_y,uv_y_0)
+
+    parabolic_area_enclosed(lb,uv_x_1,r,i_y,uv_y_1)
+
+    parabolic_area_enclosed(lb,lv_x_0,r,i_y,lv_y_0)
+
+    parabolic_area_enclosed(lb,lv_x_1,r,i_y,lv_y_1)
+
+    cubic_area_enclosed(lb, uv_x_0, uv_x_1, r, i_y, uv_y_0, uv_y_1) 
+
+    euclidean_distance(i, uv_x_0, i_y, uv_y_0)
+
+    euclidean_distance(i, uv_x_1, i_y, uv_y_1)
+
+    slope(i, uv_x_0, i_y, uv_y_0)
+
+    slope(i, uv_x_1, i_y, uv_y_1)
+
+    percentage_diff(i_y, uv_y_0)
+
+    percentage_diff(i_y, uv_y_1)
+
+    new_r_m = mask_funs[2](r_m[vld], r[vld])
+
+    new_r = right_points(new_r_m)
+
+    recursive_fun(columns, lb[vld], new_r, rb[vld], new_r_m, i[vld], q_t[vld], q_b[vld])
