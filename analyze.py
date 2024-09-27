@@ -10,7 +10,7 @@ def set_mask_coordinates(columns: NDArray[np.uint64]) -> NDArray[np.bool_]:
            lambda m,c: m | (columns == c[:,None]), \
            lambda m,c: m & (columns != c[:,None])
 
-def preliminary_data(columns: NDArray[np.uint64], q_t: NDArray[np.float64], q_b: NDArray[np.float64], l: NDArray[np.uint64], i: NDArray[np.uint64], r: NDArray[np.uint64], f: Callable, g: Callable) -> tuple[Callable, Callable, Callable]:
+def preliminary_data(q_t: NDArray[np.float64], q_b: NDArray[np.float64], l: NDArray[np.uint64], i: NDArray[np.uint64], r: NDArray[np.uint64], f: Callable, g: Callable) -> tuple[Callable, Callable, Callable]:
 
     m = f(l,r)
     m_i = g(m,i) 
@@ -114,11 +114,11 @@ def left_barrier_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
     return default_points(last_points(left_mask(m)))
 
-def barrier_points(q: NDArray[np.float64]) -> Callable[[Callable], NDArray[np.uint64]]:
+def barrier_points(q: NDArray[np.float64]) -> tuple[NDArray[np.uint64], NDArray[np.uint64]]:
 
     m = (q > 0)
 
-    return lambda f: f(m)
+    return left_barrier_points(m), right_barrier_points(m)
 
 def initial_right_points_mask(q: NDArray[np.float64]) -> NDArray[np.bool_]:
 
@@ -140,18 +140,12 @@ def next_validate(r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bo
 
     return (r <= b)
 
+
+df 
+df[top]
+df[bottom]
+r_mask_0 = 
+
 def recursive_fun():
 
-    m = right_points_mask()
-
-    r = first_right_points(m)
-
-    l = first_left_points()
-
-    b = barrier_points()
-
-    v = validate(r,l,b)
-
-    d = data(r[v], l[v], b[v])
-
-    n = new_mask(m[v], r[v])
+    
