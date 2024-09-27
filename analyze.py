@@ -136,6 +136,17 @@ def next_validate(r: NDArray[np.uint64], rb: NDArray[np.uint64]) -> NDArray[np.b
 
     return (r <= rb)
 
+def diff_matrix(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
+
+    return a - b.reshape(-1,1)
+
+def initial_points(df: pd.DataFrame):
+
+    top = df['top'].values
+    bottom = df['bottom'].values
+    high = df['high'].values
+
+
 
 df 
 df[top]
