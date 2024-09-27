@@ -128,9 +128,9 @@ def right_points(q: NDArray[np.float64]) -> NDArray[np.uint64]:
 
     return first_points(right_mask(q > 0))
 
-def initial_validate(c: np.uint64, l: NDArray[np.uint64], r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
+def initial_validate(c: np.uint64, lb: NDArray[np.uint64], rb: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
-    return (r <= b) & ((r - l) > c)
+    return (rb - lb) > c
 
 def next_validate(r: NDArray[np.uint64], b: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
