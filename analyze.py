@@ -211,3 +211,42 @@ def recursive_fun(columns,lb,r,rb,r_m,i,q_t,q_b):
     new_r = right_points(new_r_m)
 
     recursive_fun(columns, lb[vld], new_r, rb[vld], new_r_m, i[vld], q_t[vld], q_b[vld])
+
+def data(f: tuple[Callable, Callable, Callable], g: tuple[Callable, Callable, Callable]) -> Callable:
+
+
+    i_x, lb_x, r_x, uv_x_0, uv_x_1, lv_x_0, lv_x_1, ipm = f[0](), f[1](), f[2](), f[3](), f[4](), f[5]() 
+    
+    i_y, uv_y_0, uv_y_1, lv_y_0, lv_y_1 = g[0](i_x), g[1](uv_x_0), g[1](uv_x_1), g[2](lv_x_0), g[2](lv_x_1)
+
+    return lambda k : k_rmsd(k, ipm, lb_x, r_x), \
+           lambda : parabolic_area_enclosed(lb_x, uv_x_0, uv_x_1, uv_y_0, uv_y_1, lv_x_0, lv_x_1, lv_y_0, lv_y_1, i_y), \
+           lambda : cubic_area_enclosed(lb_x, r_x, uv_x_0, uv_x_1, uv_y_0, uv_y_1, i_y), \
+           lambda : euclidean_distance(i_x, uv_x_0, uv_x_1, uv_y_0, uv_y_1, i_y), \
+           lambda : slope(i_x, uv_x_0, uv_x_1, uv_y_0, uv_y_1, i_y), \
+           lambda : percentage_diff(uv_y_0, uv_y_1, i_y)
+           
+
+    k_rmsd(2, p_data[2](),lb,r)
+
+    parabolic_area_enclosed(lb,uv_x_0,r,i_y,uv_y_0)
+
+    parabolic_area_enclosed(lb,uv_x_1,r,i_y,uv_y_1)
+
+    parabolic_area_enclosed(lb,lv_x_0,r,i_y,lv_y_0)
+
+    parabolic_area_enclosed(lb,lv_x_1,r,i_y,lv_y_1)
+
+    cubic_area_enclosed(lb, uv_x_0, uv_x_1, r, i_y, uv_y_0, uv_y_1) 
+
+    euclidean_distance(i, uv_x_0, i_y, uv_y_0)
+
+    euclidean_distance(i, uv_x_1, i_y, uv_y_1)
+
+    slope(i, uv_x_0, i_y, uv_y_0)
+
+    slope(i, uv_x_1, i_y, uv_y_1)
+
+    percentage_diff(i_y, uv_y_0)
+
+    percentage_diff(i_y, uv_y_1)
