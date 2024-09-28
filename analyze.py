@@ -10,7 +10,7 @@ def set_mask_coordinates(columns: NDArray[np.uint64]) -> NDArray[np.bool_]:
            lambda m,c: m | (columns == c[:,None]), \
            lambda m,c: m & (columns != c[:,None])
 
-def preliminary_data(q_t: NDArray[np.float64], q_b: NDArray[np.float64], l: NDArray[np.uint64], i: NDArray[np.uint64], r: NDArray[np.uint64], f: Callable, g: Callable) -> tuple[Callable, Callable, Callable]:
+def preliminary_data(q_t: NDArray[np.float64], q_b: NDArray[np.float64], lb: NDArray[np.uint64], i_x: NDArray[np.uint64], r: NDArray[np.uint64], f: Callable, g: Callable) -> tuple[Callable, Callable, Callable]:
 
     m = f(l,r)
     m_i = g(m,i) 
@@ -102,17 +102,6 @@ def first_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
     return np.argmax(m, axis=1)
 
-def right_barrier_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
-
-    default_points = lambda p: np.where(p == 0, len(p), p)
-
-    return default_points(first_points(right_mask(m)))
-
-def left_barrier_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
-
-    default_points = lambda p: np.where(p == len(p)-1, -1, p)
-
-    return default_points(last_points(left_mask(m)))
 
 def barrier_points(q: NDArray[np.float64]) -> tuple[NDArray[np.uint64], NDArray[np.uint64]]:
 
@@ -128,17 +117,6 @@ def right_points_mask(q: NDArray[np.float64]) -> NDArray[np.bool_]:
 
     return right_mask(q > 0)
 
-def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
-
-    return first_points(m)
-
-def initial_validate(c: np.uint64, lb: NDArray[np.uint64], rb: NDArray[np.uint64]) -> NDArray[np.bool_]:
-
-    return (rb - lb) > c
-
-def next_validate(r: NDArray[np.uint64], rb: NDArray[np.uint64]) -> NDArray[np.bool_]:
-
-    return (r <= rb)
 
 def diff_matrix(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
 
@@ -226,6 +204,168 @@ def data(f: tuple[Callable, Callable, Callable], g: tuple[Callable, Callable, Ca
            lambda : slope(i_x, uv_x_0, uv_x_1, uv_y_0, uv_y_1, i_y), \
            lambda : percentage_diff(uv_y_0, uv_y_1, i_y)
            
+
+def preliminary_data(f: tuple[Callable, Callable, Callable], g: tuple[Callable, Callable, Callable]) -> tuple[Callable, Callable]:
+
+
+    x_data = list(map(lambda i: f[i](), list(range(5))))
+    
+    y_data = [g[0](x_data[0]), g[1](x_data[1]), g[1](x_data[2]), g[2](x_data[3]), g[2](x_data[4])]
+
+    return lambda i : x_data[i], \
+           lambda i : y_data[i]
+           
+def data(f: tuple[Callable, Callable]) -> Callable:
+
+    return lambda g: g(f)
+
+def k_rmsd(k: np.float64) -> Callable:
+
+    return lambda f: k_rmsd(k, f)
+
+
+def set_mask_coordinates(columns: NDArray[np.uint64]) -> NDArray[np.bool_]:
+
+    return lambda l,r: (columns <= l[:,None]) | (columns >= r[:,None]), \
+           lambda m,c: m | (columns == c[:,None]), \
+           lambda m,c: m & (columns != c[:,None])
+
+def preliminary_data(q_t: NDArray[np.float64], q_b: NDArray[np.float64], lb: NDArray[np.uint64], i_x: NDArray[np.uint64], r: NDArray[np.uint64], f: Callable, g: Callable) -> tuple[Callable, Callable, Callable]:
+
+    m = f(l,r)
+    m_i = g(m,i) 
+
+    return lambda : upper_vertices(q_t, m_i, g), \
+           lambda : lower_vertices(q_b, m, g), \
+           lambda : inner_points_matrix(q_t, m)
+
+def data_frame(df: pd.DataFrame) -> Callable:
+
+    data = {
+        'range_x': df.index.values,
+        'top_p': df['top'].values,
+        'bottom_p' : df['bottom'].values,
+        'high_p' : df['high'].values
+    }
+
+    return lambda s: data[s]
+
+def relational_matrices(f: Callable) -> Callable:
+
+    data = {
+        'q_t': diff_matrix(f('top_p'), f('top_p')),
+        'q_b': diff_matrix(f('top_p'), f('bottom_p')),
+        'q_h': diff_matrix(f('top_p'), f('high_p'))
+    }
+
+    return lambda s: data[s]
+
+def q_mask(f: Callable) -> Callable:
+
+    data = {
+        'q_t_mask': f('q_t') > 0,
+        'q_h_mask': f('q_h') > 0
+    }
+    
+    return lambda s: data[s]
+
+def point_masks(f: Callable) -> Callable:
+
+    data = {
+        'lb_mask': left_mask(f('q_t_mask')),
+        'rb_mask': right_mask(f('q_t_mask')),
+        'r_mask': right_mask(f('q_h_mask'))
+    }
+
+    return lambda s: data[s]
+
+def points(f: Callable, g: Callable) -> Callable:
+
+    data = {
+        'lb_x': left_barrier_points(f('lb_mask')),
+        'rb_x': right_barrier_points(f('rb_mask')),
+        'r_x': right_points(f('r_mask')),
+        'i_x': g('range_x')
+    }
+    
+    return lambda s: data[s]
+
+def initial_validate(c: np.uint64, f: Callable) -> Callable:
+
+    vld = (f('rb_x') - f('lb_x')) > c
+
+    return lambda : vld
+
+def next_validate(f: Callable) -> Callable:
+
+    vld = f('r_x') <= f('rb_x')
+
+    return lambda : vld
+
+def initial_validated_data(f: Callable, p: Callable, q: Callable, r: Callable) -> Callable:
+
+    vld = f()
+
+    data = {
+        'lb_x': p('lb_x')[vld],
+        'rb_x': p('rb_x')[vld],
+        'r_x': p('r_x')[vld],
+        'i_x': p('range_x')[vld],
+        'columns': p('range_x'),
+        'q_t': q('q_t')[vld],
+        'q_b': q('q_b')[vld],
+        'r_mask': r('r_mask')[vld]
+    }
+
+    return lambda s: data[s]
+
+
+def next_validated_data(f: Callable, g: Callable, h: Callable) -> Callable:
+
+    vld = f()
+
+    data = {
+        'lb_x': g('lb_x')[vld],
+        'rb_x': g('rb_x')[vld],
+        'r_x': h('r_x')[vld],
+        'i_x': g('i_x')[vld],
+        'columns': g('range_x'),
+        'q_t': g('q_t')[vld],
+        'q_b': g('q_b')[vld],
+        'r_mask': h('r_mask')[vld]
+    }
+
+    return lambda s: data[s]
+
+
+
+def variable_data(f: Callable) -> Callable:
+
+    r_mask = f('r_mask') & (f('columns') != f('r_x'))
+
+    data = {
+        'r_x': right_points(r_mask),
+        'r_mask': r_mask
+    }
+
+    return lambda s: data[s]
+
+def right_barrier_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+
+    default_points = lambda p: np.where(p == 0, len(p), p)
+
+    return default_points(first_points(m))
+
+def left_barrier_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+
+    default_points = lambda p: np.where(p == len(p)-1, -1, p)
+
+    return default_points(last_points(m))
+
+def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+
+    return first_points(m)
+
 
     k_rmsd(2, p_data[2](),lb,r)
 
