@@ -103,11 +103,11 @@ def first_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
     return np.argmax(m, axis=1)
 
 
-def barrier_points(q: NDArray[np.float64]) -> tuple[NDArray[np.uint64], NDArray[np.uint64]]:
+def boundary_points(q: NDArray[np.float64]) -> tuple[NDArray[np.uint64], NDArray[np.uint64]]:
 
     m = (q > 0)
 
-    return left_barrier_points(m), right_barrier_points(m)
+    return left_boundary_points(m), right_boundary_points(m)
 
 def next_right_points_mask(columns: NDArray[np.uint64], m: NDArray[np.bool_], r: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
@@ -133,7 +133,7 @@ def initial_points(df: pd.DataFrame):
     q_h = diff_matrix(top, high)
     i = np.arange(len(top))
 
-    lb,rb = barrier_points(q_t)
+    lb,rb = boundary_points(q_t)
     r_m = right_points_mask(q_h)
     r = right_points(r_m)
 
@@ -282,8 +282,8 @@ def point_masks(f: Callable) -> Callable:
 def points(f: Callable, g: Callable) -> Callable:
 
     data = {
-        'lb_x': left_barrier_points(f('lb_mask')),
-        'rb_x': right_barrier_points(f('rb_mask')),
+        'lb_x': left_boundary_points(f('lb_mask')),
+        'rb_x': right_boundary_points(f('rb_mask')),
         'r_x': right_points(f('r_mask')),
         'i_x': g('range_x')
     }
@@ -296,9 +296,9 @@ def initial_validate(c: np.uint64, f: Callable) -> Callable:
 
     return lambda : vld
 
-def next_validate(f: Callable) -> Callable:
+def next_validate(f: Callable, g: Callable) -> Callable:
 
-    vld = f('r_x') <= f('rb_x')
+    vld = g('r_x') <= f('rb_x')
 
     return lambda : vld
 
@@ -329,14 +329,13 @@ def next_validated_data(f: Callable, g: Callable, h: Callable) -> Callable:
         'rb_x': g('rb_x')[vld],
         'r_x': h('r_x')[vld],
         'i_x': g('i_x')[vld],
-        'columns': g('range_x'),
+        'columns': g('columns'),
         'q_t': g('q_t')[vld],
         'q_b': g('q_b')[vld],
         'r_mask': h('r_mask')[vld]
     }
 
     return lambda s: data[s]
-
 
 
 def variable_data(f: Callable) -> Callable:
@@ -350,13 +349,57 @@ def variable_data(f: Callable) -> Callable:
 
     return lambda s: data[s]
 
-def right_barrier_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+
+def boundary_mask(f: Callable) -> Callable:
+
+    b_mask = (f('columns') <= f('lb_x')[:,None]) | (f('columns') >= f('r_x')[:,None])
+
+    data = {
+        'b_mask': b_mask,
+        'bi_mask': b_mask | (f('columns') == f('i_x')[:,None]),
+        'b_op': lambda c: data['b_mask'] | (f('columns') == c[:,None]),
+        'bi_op': lambda c: data['bi_mask'] | (f('columns') == c[:,None])
+    }
+
+    return lambda s: data[s]
+
+def preliminary_data_x(f: Callable, g: Callable) -> Callable:
+
+    uv_x_0 = np.argmax(np.where(g('bi_mask'), -np.inf, f('q_t')), axis=1)
+    lv_x_0 = np.argmin(np.where(g('b_mask'), np.inf, f('q_b')), axis=1)
+
+    data = { 
+        'uv_x_0': uv_x_0,
+        'uv_x_1': np.argmax(np.where(g('bi_op')(uv_x_0), -np.inf, f('q_t')), axis=1),
+        'lv_x_0': lv_x_0,
+        'lv_x_1': np.argmin(np.where(g('b_op')(lv_x_0), np.inf, f('q_b')), axis=1)
+    }
+
+    return lambda s: data[s]
+
+def preliminary_data(q_t: NDArray[np.float64], q_b: NDArray[np.float64], lb: NDArray[np.uint64], i_x: NDArray[np.uint64], r: NDArray[np.uint64], f: Callable, g: Callable) -> tuple[Callable, Callable, Callable]:
+
+    m = f(l,r)
+    m_i = g(m,i) 
+
+    return lambda : upper_vertices(q_t, m_i, g), \
+           lambda : lower_vertices(q_b, m, g), \
+           lambda : inner_points_matrix(q_t, m)
+
+
+def set_mask_coordinates(columns: NDArray[np.uint64]) -> NDArray[np.bool_]:
+
+    return lambda l,r: (columns <= l[:,None]) | (columns >= r[:,None]), \
+           lambda m,c: m | (columns == c[:,None]), \
+           lambda m,c: m & (columns != c[:,None])
+
+def right_boundary_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
     default_points = lambda p: np.where(p == 0, len(p), p)
 
     return default_points(first_points(m))
 
-def left_barrier_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+def left_boundary_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
     default_points = lambda p: np.where(p == len(p)-1, -1, p)
 
