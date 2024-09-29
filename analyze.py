@@ -372,26 +372,24 @@ def preliminary_data_x(f: Callable, g: Callable) -> Callable:
         'uv_x_0': uv_x_0,
         'uv_x_1': np.argmax(np.where(g('bi_op')(uv_x_0), -np.inf, f('q_t')), axis=1),
         'lv_x_0': lv_x_0,
-        'lv_x_1': np.argmin(np.where(g('b_op')(lv_x_0), np.inf, f('q_b')), axis=1)
+        'lv_x_1': np.argmin(np.where(g('b_op')(lv_x_0), np.inf, f('q_b')), axis=1),
+        'ipm': np.where(g('b_mask'), 0, f('q_t'))
     }
 
     return lambda s: data[s]
 
-def preliminary_data(q_t: NDArray[np.float64], q_b: NDArray[np.float64], lb: NDArray[np.uint64], i_x: NDArray[np.uint64], r: NDArray[np.uint64], f: Callable, g: Callable) -> tuple[Callable, Callable, Callable]:
+def preliminary_data_y(f: Callable, g: Callable) -> Callable:
 
-    m = f(l,r)
-    m_i = g(m,i) 
+    data = {
+        'uv_y_0': f('top_p')[g('uv_x_0')],
+        'uv_y_1': f('top_p')[g('uv_x_1')],
+        'lv_y_0': f('bottom_p')[g('lv_x_0')],
+        'lv_y_1': f('bottom_p')[g('lv_x_1')]
+    }
 
-    return lambda : upper_vertices(q_t, m_i, g), \
-           lambda : lower_vertices(q_b, m, g), \
-           lambda : inner_points_matrix(q_t, m)
+    return lambda s: data[s]
 
 
-def set_mask_coordinates(columns: NDArray[np.uint64]) -> NDArray[np.bool_]:
-
-    return lambda l,r: (columns <= l[:,None]) | (columns >= r[:,None]), \
-           lambda m,c: m | (columns == c[:,None]), \
-           lambda m,c: m & (columns != c[:,None])
 
 def right_boundary_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
