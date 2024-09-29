@@ -190,54 +190,6 @@ def recursive_fun(columns,lb,r,rb,r_m,i,q_t,q_b):
 
     recursive_fun(columns, lb[vld], new_r, rb[vld], new_r_m, i[vld], q_t[vld], q_b[vld])
 
-def data(f: tuple[Callable, Callable, Callable], g: tuple[Callable, Callable, Callable]) -> Callable:
-
-
-    i_x, lb_x, r_x, uv_x_0, uv_x_1, lv_x_0, lv_x_1, ipm = f[0](), f[1](), f[2](), f[3](), f[4](), f[5]() 
-    
-    i_y, uv_y_0, uv_y_1, lv_y_0, lv_y_1 = g[0](i_x), g[1](uv_x_0), g[1](uv_x_1), g[2](lv_x_0), g[2](lv_x_1)
-
-    return lambda k : k_rmsd(k, ipm, lb_x, r_x), \
-           lambda : parabolic_area_enclosed(lb_x, uv_x_0, uv_x_1, uv_y_0, uv_y_1, lv_x_0, lv_x_1, lv_y_0, lv_y_1, i_y), \
-           lambda : cubic_area_enclosed(lb_x, r_x, uv_x_0, uv_x_1, uv_y_0, uv_y_1, i_y), \
-           lambda : euclidean_distance(i_x, uv_x_0, uv_x_1, uv_y_0, uv_y_1, i_y), \
-           lambda : slope(i_x, uv_x_0, uv_x_1, uv_y_0, uv_y_1, i_y), \
-           lambda : percentage_diff(uv_y_0, uv_y_1, i_y)
-           
-
-def preliminary_data(f: tuple[Callable, Callable, Callable], g: tuple[Callable, Callable, Callable]) -> tuple[Callable, Callable]:
-
-
-    x_data = list(map(lambda i: f[i](), list(range(5))))
-    
-    y_data = [g[0](x_data[0]), g[1](x_data[1]), g[1](x_data[2]), g[2](x_data[3]), g[2](x_data[4])]
-
-    return lambda i : x_data[i], \
-           lambda i : y_data[i]
-           
-def data(f: tuple[Callable, Callable]) -> Callable:
-
-    return lambda g: g(f)
-
-def k_rmsd(k: np.float64) -> Callable:
-
-    return lambda f: k_rmsd(k, f)
-
-
-def set_mask_coordinates(columns: NDArray[np.uint64]) -> NDArray[np.bool_]:
-
-    return lambda l,r: (columns <= l[:,None]) | (columns >= r[:,None]), \
-           lambda m,c: m | (columns == c[:,None]), \
-           lambda m,c: m & (columns != c[:,None])
-
-def preliminary_data(q_t: NDArray[np.float64], q_b: NDArray[np.float64], lb: NDArray[np.uint64], i_x: NDArray[np.uint64], r: NDArray[np.uint64], f: Callable, g: Callable) -> tuple[Callable, Callable, Callable]:
-
-    m = f(l,r)
-    m_i = g(m,i) 
-
-    return lambda : upper_vertices(q_t, m_i, g), \
-           lambda : lower_vertices(q_b, m, g), \
-           lambda : inner_points_matrix(q_t, m)
 
 def data_frame(df: pd.DataFrame) -> Callable:
 
@@ -373,7 +325,10 @@ def preliminary_data_x(f: Callable, g: Callable) -> Callable:
         'uv_x_1': np.argmax(np.where(g('bi_op')(uv_x_0), -np.inf, f('q_t')), axis=1),
         'lv_x_0': lv_x_0,
         'lv_x_1': np.argmin(np.where(g('b_op')(lv_x_0), np.inf, f('q_b')), axis=1),
-        'ipm': np.where(g('b_mask'), 0, f('q_t'))
+        'ipm': np.where(g('b_mask'), 0, f('q_t')),
+        'i_x': f('i_x'),
+        'lb_x': f('lb_x'),
+        'r_x': f('r_x')
     }
 
     return lambda s: data[s]
@@ -384,11 +339,34 @@ def preliminary_data_y(f: Callable, g: Callable) -> Callable:
         'uv_y_0': f('top_p')[g('uv_x_0')],
         'uv_y_1': f('top_p')[g('uv_x_1')],
         'lv_y_0': f('bottom_p')[g('lv_x_0')],
-        'lv_y_1': f('bottom_p')[g('lv_x_1')]
+        'lv_y_1': f('bottom_p')[g('lv_x_1')],
+        'i_y': f('top_p')[g('i_x')]
     }
 
     return lambda s: data[s]
 
+def resistance_data(f: Callable, g: Callable) -> Callable:
+
+    parab = lambda d,i: parabolic_area_enclosed(f('lb_x'), f(f'{d}v_x_{i}'), f('r_x'), g('i_y'), g(f'{d}v_y_{i}'))
+    eucl_slop = lambda fun,i: fun(f('i_x'), f(f'uv_x_{i}'), g('i_y'), g(f'uv_y_{i}'))
+    perc_diff = lambda i: percentage_diff(g('i_y'), g(f'uv_y_{i}'))
+    
+    data = {
+        'k_rmsd': lambda k: k_rmsd(k, f('ipm'), f('lb_x'), f('r_x')),
+        'upper_parabolic_area_enclosed_0': lambda : parab('u', 0),
+        'upper_parabolic_area_enclosed_1': lambda : parab('u', 1),
+        'lower_parabolic_area_enclosed_0': lambda : parab('l', 0),
+        'lower_parabolic_area_enclosed_1': lambda : parab('l', 1),
+        'cubic_area_enclosed': lambda : cubic_area_enclosed(f('lb_x'), f('uv_x_0'), f('uv_x_1'), f('r_x'), g('i_y'), g('uv_y_0'), g('uv_y_1')),
+        'euclidean_distance_0': lambda : eucl_slop(euclidean_distance,0),
+        'euclidean_distance_1': lambda : eucl_slop(euclidean_distance,1),
+        'slope_0': lambda : eucl_slop(slope,0),
+        'slope_1': lambda : eucl_slop(slope,1),
+        'percentage_diff_0': lambda : perc_diff(0),
+        'percentage_diff_1': lambda : perc_diff(1)
+    }
+    
+    return lambda s: data[s]
 
 
 def right_boundary_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
