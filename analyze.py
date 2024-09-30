@@ -181,11 +181,6 @@ def points(f: Callable, g: Callable) -> Callable:
     
     return lambda s: data[s]
 
-def initial_validate(c: np.uint64, f: Callable) -> Callable:
-
-    vld = (f('rb_x') - f('lb_x')) > c
-
-    return lambda : vld
 
 def next_validate(f: Callable, g: Callable) -> Callable:
 
@@ -193,9 +188,9 @@ def next_validate(f: Callable, g: Callable) -> Callable:
 
     return lambda : vld
 
-def initial_validated_data(f: Callable, p: Callable, q: Callable, r: Callable) -> Callable:
+def initial_validated_data(c: np.uint64, p: Callable, q: Callable, r: Callable) -> Callable:
 
-    vld = f()
+    vld = (p('rb_x') - p('lb_x')) > c
 
     data = {
         'lb_x': p('lb_x')[vld],
