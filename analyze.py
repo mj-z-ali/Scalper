@@ -182,12 +182,6 @@ def points(f: Callable, g: Callable) -> Callable:
     return lambda s: data[s]
 
 
-def next_validate(f: Callable, g: Callable) -> Callable:
-
-    vld = g('r_x') <= f('rb_x')
-
-    return lambda : vld
-
 def initial_validated_data(c: np.uint64, p: Callable, q: Callable, r: Callable) -> Callable:
 
     vld = (p('rb_x') - p('lb_x')) > c
@@ -206,19 +200,19 @@ def initial_validated_data(c: np.uint64, p: Callable, q: Callable, r: Callable) 
     return lambda s: data[s]
 
 
-def next_validated_data(f: Callable, g: Callable, h: Callable) -> Callable:
+def next_validated_data(f: Callable, g: Callable) -> Callable:
 
-    vld = f()
+    vld = g('r_x') <= f('rb_x')
 
     data = {
-        'lb_x': g('lb_x')[vld],
-        'rb_x': g('rb_x')[vld],
-        'r_x': h('r_x')[vld],
-        'i_x': g('i_x')[vld],
-        'columns': g('columns'),
-        'q_t': g('q_t')[vld],
-        'q_b': g('q_b')[vld],
-        'r_mask': h('r_mask')[vld]
+        'lb_x': f('lb_x')[vld],
+        'rb_x': f('rb_x')[vld],
+        'r_x': g('r_x')[vld],
+        'i_x': f('i_x')[vld],
+        'columns': f('columns'),
+        'q_t': f('q_t')[vld],
+        'q_b': f('q_b')[vld],
+        'r_mask': g('r_mask')[vld]
     }
 
     return lambda s: data[s]
