@@ -4,40 +4,7 @@ from typing import Callable
 from numpy.typing import NDArray
 import polynomial as poly
 
-def set_mask_coordinates(columns: NDArray[np.uint64]) -> NDArray[np.bool_]:
 
-    return lambda l,r: (columns <= l[:,None]) | (columns >= r[:,None]), \
-           lambda m,c: m | (columns == c[:,None]), \
-           lambda m,c: m & (columns != c[:,None])
-
-def preliminary_data(q_t: NDArray[np.float64], q_b: NDArray[np.float64], lb: NDArray[np.uint64], i_x: NDArray[np.uint64], r: NDArray[np.uint64], f: Callable, g: Callable) -> tuple[Callable, Callable, Callable]:
-
-    m = f(l,r)
-    m_i = g(m,i) 
-
-    return lambda : upper_vertices(q_t, m_i, g), \
-           lambda : lower_vertices(q_b, m, g), \
-           lambda : inner_points_matrix(q_t, m)
-
-def upper_vertices(q: NDArray[np.float64], m: NDArray[np.bool_], f: Callable) -> tuple[NDArray[np.uint64], NDArray[np.uint64]]:
-    
-    first_vertices = np.argmax(np.where(m, -np.inf, q), axis=1)
-
-    second_vertices = np.argmax(np.where(f(m, first_vertices), -np.inf, q), axis=1)
-
-    return first_vertices, second_vertices
-
-def lower_vertices(q: NDArray[np.float64], m: NDArray[np.bool_], f: Callable) -> tuple[NDArray[np.uint64], NDArray[np.uint64]]:
-    
-    first_vertices = np.argmin(np.where(m, np.inf, q), axis=1)
-
-    second_vertices = np.argmin(np.where(f(m, first_vertices), np.inf, q), axis=1)
-
-    return first_vertices, second_vertices
-
-def inner_points_matrix(q: NDArray[np.float64], m: NDArray[np.bool_]) -> NDArray[np.float64]:
-
-    return np.where(m, 0, q)
 
 def k_rmsd(k: np.float64, q: NDArray[np.float64], l: NDArray[np.uint64], r: NDArray[np.uint64]) -> NDArray[np.float64]:
 
@@ -94,28 +61,6 @@ def right_mask(m: NDArray[np.bool_]) -> NDArray[np.bool_]:
 
     return m & upper_tri_mask(m.shape)
 
-def last_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
-
-    return m.shape[1] - np.argmax(m[:,::-1], axis=1) - 1
-
-def first_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
-
-    return np.argmax(m, axis=1)
-
-
-def boundary_points(q: NDArray[np.float64]) -> tuple[NDArray[np.uint64], NDArray[np.uint64]]:
-
-    m = (q > 0)
-
-    return left_boundary_points(m), right_boundary_points(m)
-
-def next_right_points_mask(columns: NDArray[np.uint64], m: NDArray[np.bool_], r: NDArray[np.uint64]) -> NDArray[np.bool_]:
-
-    return m & (columns != r[:,None])
-
-def right_points_mask(q: NDArray[np.float64]) -> NDArray[np.bool_]:
-
-    return right_mask(q > 0)
 
 
 def diff_matrix(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -212,21 +157,15 @@ def relational_matrices(f: Callable) -> Callable:
 
     return lambda s: data[s]
 
-def q_mask(f: Callable) -> Callable:
-
-    data = {
-        'q_t_mask': f('q_t') > 0,
-        'q_h_mask': f('q_h') > 0
-    }
-    
-    return lambda s: data[s]
 
 def point_masks(f: Callable) -> Callable:
+    
+    q_t_mask, q_h_mask = f('q_t') > 0, f('q_h') > 0
 
     data = {
-        'lb_mask': left_mask(f('q_t_mask')),
-        'rb_mask': right_mask(f('q_t_mask')),
-        'r_mask': right_mask(f('q_h_mask'))
+        'lb_mask': left_mask(q_t_mask),
+        'rb_mask': right_mask(q_t_mask),
+        'r_mask': right_mask(q_h_mask)
     }
 
     return lambda s: data[s]
@@ -262,7 +201,7 @@ def initial_validated_data(f: Callable, p: Callable, q: Callable, r: Callable) -
         'lb_x': p('lb_x')[vld],
         'rb_x': p('rb_x')[vld],
         'r_x': p('r_x')[vld],
-        'i_x': p('range_x')[vld],
+        'i_x': p('range_x')[vld],                      
         'columns': p('range_x'),
         'q_t': q('q_t')[vld],
         'q_b': q('q_b')[vld],
@@ -369,6 +308,14 @@ def resistance_data(f: Callable, g: Callable) -> Callable:
     return lambda s: data[s]
 
 
+def last_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+
+    return m.shape[1] - np.argmax(m[:,::-1], axis=1) - 1
+
+def first_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+
+    return np.argmax(m, axis=1)
+
 def right_boundary_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
     default_points = lambda p: np.where(p == 0, len(p), p)
@@ -384,28 +331,3 @@ def left_boundary_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
     return first_points(m)
-
-
-    k_rmsd(2, p_data[2](),lb,r)
-
-    parabolic_area_enclosed(lb,uv_x_0,r,i_y,uv_y_0)
-
-    parabolic_area_enclosed(lb,uv_x_1,r,i_y,uv_y_1)
-
-    parabolic_area_enclosed(lb,lv_x_0,r,i_y,lv_y_0)
-
-    parabolic_area_enclosed(lb,lv_x_1,r,i_y,lv_y_1)
-
-    cubic_area_enclosed(lb, uv_x_0, uv_x_1, r, i_y, uv_y_0, uv_y_1) 
-
-    euclidean_distance(i, uv_x_0, i_y, uv_y_0)
-
-    euclidean_distance(i, uv_x_1, i_y, uv_y_1)
-
-    slope(i, uv_x_0, i_y, uv_y_0)
-
-    slope(i, uv_x_1, i_y, uv_y_1)
-
-    percentage_diff(i_y, uv_y_0)
-
-    percentage_diff(i_y, uv_y_1)
