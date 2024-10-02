@@ -3,6 +3,7 @@ import numpy as np
 from typing import Callable
 from numpy.typing import NDArray
 import polynomial as poly
+from functools import reduce
 
 
 
@@ -62,79 +63,9 @@ def right_mask(m: NDArray[np.bool_]) -> NDArray[np.bool_]:
     return m & upper_tri_mask(m.shape)
 
 
-
 def diff_matrix(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
 
     return a - b.reshape(-1,1)
-
-def initial_points(df: pd.DataFrame):
-
-    top = df['top'].values
-    bottom = df['bottom'].values
-    high = df['high'].values
-    
-    q_t = diff_matrix(top, top)
-    q_b = diff_matrix(top, bottom)
-    q_h = diff_matrix(top, high)
-    i = np.arange(len(top))
-
-    lb,rb = boundary_points(q_t)
-    r_m = right_points_mask(q_h)
-    r = right_points(r_m)
-
-    vld = initial_validate(3, lb, rb)
-
-    return lb[vld], r[vld], rb[vld], r_m[vld], i[vld], q_t[vld], q_b[vld]
-
-
-def recursive_fun(columns,lb,r,rb,r_m,i,q_t,q_b):
-
-    vld = next_validate(r,rb)
-
-    mask_funs = set_mask_coordinates(columns)
-
-    p_data = preliminary_data(q_t[vld],q_b[vld],lb[vld],i[vld],r[vld],mask_funs[0],mask_funs[1])
-
-    uv_x_0, uv_x_1 = p_data[0]()
-
-    lv_x_0, lv_x_1 = p_data[1]()
-
-    uv_y_0, uv_y_1 = df['top'].values[uv_x_0], df['top'].values[uv_x_1]
-
-    lv_y_0, lv_y_1 = df['bottom'].values[lv_x_0], df['bottom'].values[lv_y_1]
-
-    i_y = df['top'].values[i[vld]]
-
-    k_rmsd(2, p_data[2](),lb,r)
-
-    parabolic_area_enclosed(lb,uv_x_0,r,i_y,uv_y_0)
-
-    parabolic_area_enclosed(lb,uv_x_1,r,i_y,uv_y_1)
-
-    parabolic_area_enclosed(lb,lv_x_0,r,i_y,lv_y_0)
-
-    parabolic_area_enclosed(lb,lv_x_1,r,i_y,lv_y_1)
-
-    cubic_area_enclosed(lb, uv_x_0, uv_x_1, r, i_y, uv_y_0, uv_y_1) 
-
-    euclidean_distance(i, uv_x_0, i_y, uv_y_0)
-
-    euclidean_distance(i, uv_x_1, i_y, uv_y_1)
-
-    slope(i, uv_x_0, i_y, uv_y_0)
-
-    slope(i, uv_x_1, i_y, uv_y_1)
-
-    percentage_diff(i_y, uv_y_0)
-
-    percentage_diff(i_y, uv_y_1)
-
-    new_r_m = mask_funs[2](r_m[vld], r[vld])
-
-    new_r = right_points(new_r_m)
-
-    recursive_fun(columns, lb[vld], new_r, rb[vld], new_r_m, i[vld], q_t[vld], q_b[vld])
-
 
 def data_frame(df: pd.DataFrame) -> Callable:
 
@@ -187,11 +118,12 @@ def initial_validated_data(c: np.uint64, p: Callable, q: Callable, r: Callable) 
     vld = (p('rb_x') - p('lb_x')) > c
 
     data = {
+        'empty': np.all(~vld),
         'lb_x': p('lb_x')[vld],
         'rb_x': p('rb_x')[vld],
         'r_x': p('r_x')[vld],
-        'i_x': p('range_x')[vld],                      
-        'columns': p('range_x'),
+        'i_x': p('i_x')[vld],                      
+        'columns': p('i_x'),
         'q_t': q('q_t')[vld],
         'q_b': q('q_b')[vld],
         'r_mask': r('r_mask')[vld]
@@ -205,6 +137,7 @@ def next_validated_data(f: Callable, g: Callable) -> Callable:
     vld = g('r_x') <= f('rb_x')
 
     data = {
+        'empty': np.all(~vld),
         'lb_x': f('lb_x')[vld],
         'rb_x': f('rb_x')[vld],
         'r_x': g('r_x')[vld],
@@ -322,14 +255,103 @@ def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
     return first_points(m)
 
 
+
 def operations_dependent_on_dataframe(df: pd.DataFrame) -> Callable:
 
-    f_df = data_frame(df)
-
     data = {
-        'relational_matrices': relational_matrices(f_df),
-        'points': lambda f_pm: points(f_pm, f_df),
-        'preliminary_data_y': lambda f_px: preliminary_data_y(f_df, f_px)
+        'data_frame': data_frame(df),
+        'initial_validated_data': lambda c, f_pm, f_rm: initial_validated_data(c, points(f_pm, data['data_frame']), f_rm, f_pm),
+        'preliminary_data_y': lambda f_px: preliminary_data_y(data['data_frame'], f_px)
     }
     
     return lambda s: data[s]
+
+
+def operations_dependent_on_point_masks(c: np.uint64, f: Callable) -> Callable:
+
+    f_rm = relational_matrices(f('data_frame'))
+
+    return f('initial_validated_data')(c, point_masks(f_rm), f_rm)
+
+
+def place_holder(f_nvd: Callable) -> Callable:
+
+    data = {
+        'preliminary_data_x': preliminary_data_x(f_nvd, boundary_mask(f_nvd)),
+        'resistance_data': lambda f_py: resistance_data(data['preliminary_data_x'], f_py(data['preliminary_data_x'])),
+        'next_validated_data': next_validated_data(f_nvd, variable_data(f_nvd))
+    }
+
+    return lambda s: data[s]
+
+def fr(*args: Callable) -> Callable:
+
+    return lambda f, l: reduce(lambda acc, x: np.column_stack((acc, x)), map(lambda g: g(f), args), np.empty((l,0)))
+
+def place_holder_(f_nvd: Callable, f_py: Callable, f_r: Callable):
+
+    if f_nvd('empty'):
+        return 
+
+    h = place_holder(f_nvd)
+
+    f_r(h('resistance_data')(f_py), f_nvd('i_x').shape[0])
+
+    place_holder_(h('next_validated_data'))
+
+
+def res_data(df: pd.DataFrame, gap: np.uint64):
+
+    D = operations_dependent_on_dataframe(df)
+
+    return place_holder_(operations_dependent_on_point_masks(gap, D), D('preliminary_data_y'))
+
+
+
+def k_rmsd(k: np.float64) -> Callable:
+
+    return lambda f: f('k_rmsd')(k)
+
+def first_upper_parabolic_area_enclosed() -> Callable:
+        
+    return lambda f: f('upper_parabolic_area_enclosed_0')()
+
+def second_upper_parabolic_area_enclosed() -> Callable:
+        
+    return lambda f: f('upper_parabolic_area_enclosed_1')()
+
+def first_lower_parabolic_area_enclosed() -> Callable:
+        
+    return lambda f: f('lower_parabolic_area_enclosed_0')()
+    
+def second_lower_parabolic_area_enclosed() -> Callable:
+        
+    return lambda f: f('lower_parabolic_area_enclosed_1')()
+
+def cubic_area_enclosed() -> Callable:
+        
+    return lambda f: f('cubic_area_enclosed')()
+
+def first_euclidean_distance() -> Callable:
+        
+    return lambda f: f('euclidean_distance_0')()
+
+def second_euclidean_distance() -> Callable:
+        
+    return lambda f: f('euclidean_distance_1')()
+
+def first_slope() -> Callable:
+    
+    return lambda f: f('slope_0')()
+
+def second_slope() -> Callable:
+    
+    return lambda f: f('slope_1')() 
+
+def first_percentage_diff() -> Callable:
+    
+    return lambda f: f('percentage_diff_0')()
+
+def second_percentage_diff() -> Callable:
+    
+    return lambda f: f('percentage_diff_1')()
