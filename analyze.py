@@ -320,3 +320,16 @@ def left_boundary_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
     return first_points(m)
+
+
+def operations_dependent_on_dataframe(df: pd.DataFrame) -> Callable:
+
+    f_df = data_frame(df)
+
+    data = {
+        'relational_matrices': relational_matrices(f_df),
+        'points': lambda f_pm: points(f_pm, f_df),
+        'preliminary_data_y': lambda f_px: preliminary_data_y(f_df, f_px)
+    }
+    
+    return lambda s: data[s]
