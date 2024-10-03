@@ -256,55 +256,48 @@ def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
 
 
-def operations_dependent_on_dataframe(df: pd.DataFrame) -> Callable:
+def initial_data(c: np.uint64, f_df: Callable) -> Callable:
 
-    data = {
-        'data_frame': data_frame(df),
-        'initial_validated_data': lambda c, f_pm, f_rm: initial_validated_data(c, points(f_pm, data['data_frame']), f_rm, f_pm),
-        'preliminary_data_y': lambda f_px: preliminary_data_y(data['data_frame'], f_px)
-    }
-    
-    return lambda s: data[s]
+    f_rm = relational_matrices(f_df)
 
+    f_pm = point_masks(f_rm)
 
-def operations_dependent_on_point_masks(c: np.uint64, f: Callable) -> Callable:
+    f_ivd = initial_validated_data(c, points(f_pm, f_df), f_rm, f_pm)
 
-    f_rm = relational_matrices(f('data_frame'))
-
-    return f('initial_validated_data')(c, point_masks(f_rm), f_rm)
+    return next_validated_data(f_ivd, f_ivd)
 
 
 def place_holder(f_nvd: Callable) -> Callable:
 
     data = {
         'preliminary_data_x': preliminary_data_x(f_nvd, boundary_mask(f_nvd)),
-        'resistance_data': lambda f_py: resistance_data(data['preliminary_data_x'], f_py(data['preliminary_data_x'])),
+        'resistance_data': lambda f_df: resistance_data(data['preliminary_data_x'], preliminary_data_y(f_df, data['preliminary_data_x'])),
         'next_validated_data': next_validated_data(f_nvd, variable_data(f_nvd))
     }
 
     return lambda s: data[s]
 
-def fr(*args: Callable) -> Callable:
+def operations(*args: Callable) -> Callable:
 
     return lambda f, l: reduce(lambda acc, x: np.column_stack((acc, x)), map(lambda g: g(f), args), np.empty((l,0)))
 
-def place_holder_(f_nvd: Callable, f_py: Callable, f_r: Callable):
+def build_resistance_data(f_nvd: Callable, f_df: Callable, f_op: Callable):
 
     if f_nvd('empty'):
         return 
 
     h = place_holder(f_nvd)
 
-    f_r(h('resistance_data')(f_py), f_nvd('i_x').shape[0])
+    f_op(h('resistance_data')(f_df), f_nvd('i_x').shape[0])
 
-    place_holder_(h('next_validated_data'))
+    return build_resistance_data(h('next_validated_data'), f_df, f_op)
 
 
-def res_data(df: pd.DataFrame, gap: np.uint64):
+def res_data(df: pd.DataFrame, gap: np.uint64, *args: Callable):
 
-    D = operations_dependent_on_dataframe(df)
+    f_df = data_frame(df)
 
-    return place_holder_(operations_dependent_on_point_masks(gap, D), D('preliminary_data_y'))
+    return build_resistance_data(initial_data(gap, f_df), f_df, operations(args))
 
 
 
