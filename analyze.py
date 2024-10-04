@@ -6,6 +6,7 @@ import polynomial as poly
 from functools import reduce
 
 
+
 def k_rmsd(k: np.float64, q: NDArray[np.float64], l: NDArray[np.uint64], r: NDArray[np.uint64]) -> NDArray[np.float64]:
 
     return np.power(np.sqrt(np.divide(np.sum(q**2, axis=1), r-l)), 1/k)
@@ -73,7 +74,7 @@ def data_frame(df: pd.DataFrame) -> Callable:
         'top_p': df['top'].values[:-1],
         'bottom_p': df['bottom'].values[:-1],
         'high_p': df['high'].values[:-1],
-        'time': df.index.time
+        'time': df.index.values
     }
 
     return lambda s: data[s]
@@ -201,7 +202,9 @@ def preliminary_data_y(f: Callable, g: Callable) -> Callable:
         'uv_y_1': f('top_p')[g('uv_x_1')],
         'lv_y_0': f('bottom_p')[g('lv_x_0')],
         'lv_y_1': f('bottom_p')[g('lv_x_1')],
-        'i_y': f('top_p')[g('i_x')]
+        'i_y': f('top_p')[g('i_x')],
+        'start_time_y': f('time')[g('r_x')],
+        'end_time_y': f('time')[g('r_x')+1]
     }
 
     return lambda s: data[s]
@@ -224,11 +227,35 @@ def resistance_data(f: Callable, g: Callable) -> Callable:
         'slope_0': lambda : eucl_slop(slope,0),
         'slope_1': lambda : eucl_slop(slope,1),
         'percentage_diff_0': lambda : perc_diff(0),
-        'percentage_diff_1': lambda : perc_diff(1)
+        'percentage_diff_1': lambda : perc_diff(1),
+        'acceleration': lambda f_tf: acceleration_(f_tf, g('start_time_y'), g('end_time_y'), g('i_y'))
     }
     
     return lambda s: data[s]
 
+def acceleration_(f_tf: Callable, st: NDArray[np.datetime64], et: NDArray[np.datetime64], i_y: NDArray[np.float64]):
+
+    t_i = first_points((f_tf('time') >= st[:,None]) & (f_tf('time') < et[:,None]) & (f_tf('price') > i_y[:,None]))
+
+    p0 = f_tf('time')[t_i]
+
+    p3 = p0 - np.timedelta64(3,'s')
+
+    p2 = p0 - np.timedelta64(2,'s')
+
+    p1 = p0 - np.timedelta64(1,'s')
+
+    d = np.column_stack((
+        np.sum(((f_tf('time') >= p3[:,None]) & (f_tf('time') < p2[:,None])) * f_tf('size'), axis=1),
+        np.sum(((f_tf('time') >= p2[:,None]) & (f_tf('time') < p1[:,None])) * f_tf('size'), axis=1),
+        np.sum(((f_tf('time') >= p1[:,None]) & (f_tf('time') < p0[:,None])) * f_tf('size'), axis=1)
+    ))
+
+    i = np.array([[0,1,2]]*len(d))
+
+    c = poly.fit_polynomial(i,d,2)
+
+    return c[:,2]*2
 
 def last_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
@@ -254,7 +281,7 @@ def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
     
     default_points = lambda p: np.where(p == 0, -1, p)
 
-    return first_points(m)
+    return default_points(first_points(m))
 
 
 
@@ -302,6 +329,16 @@ def res_data(df: pd.DataFrame, gap: np.uint64, *args: Callable):
     return build_resistance_data(initial_data(gap, f_df), f_df, operations(args))
 
 
+
+def acceleration(tf: pd.DataFrame) -> Callable:
+
+    data = {
+        'time': tf.index.values,
+        'price': tf['price'].values,
+        'size': tf['size'].values
+    }
+
+    return lambda f: f('acceleration')(lambda s: data[s])
 
 def k_rmsd(k: np.float64) -> Callable:
 
