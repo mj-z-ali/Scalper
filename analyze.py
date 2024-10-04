@@ -69,10 +69,11 @@ def diff_matrix(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.fl
 def data_frame(df: pd.DataFrame) -> Callable:
 
     data = {
-        'range_x': df.index.values,
-        'top_p': df['top'].values,
-        'bottom_p' : df['bottom'].values,
-        'high_p' : df['high'].values
+        'range_x': df.index.values[:-1],
+        'top_p': df['top'].values[:-1],
+        'bottom_p': df['bottom'].values[:-1],
+        'high_p': df['high'].values[:-1],
+        'time': df.index.time
     }
 
     return lambda s: data[s]
