@@ -133,7 +133,7 @@ def initial_validated_data(c: np.uint64, p: Callable, q: Callable, r: Callable) 
 
 def next_validated_data(f: Callable, g: Callable) -> Callable:
 
-    vld = g('r_x') <= f('rb_x')
+    vld = (g('r_x') <= f('rb_x')) & (g('r_x') != -1)
 
     data = {
         'empty': np.all(~vld),
@@ -250,6 +250,8 @@ def left_boundary_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
     return default_points(last_points(m))
 
 def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
+    
+    default_points = lambda p: np.where(p == 0, -1, p)
 
     return first_points(m)
 
