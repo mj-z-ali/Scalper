@@ -6,7 +6,6 @@ import polynomial as poly
 from functools import reduce
 
 
-
 def k_rmsd(k: np.float64, q: NDArray[np.float64], l: NDArray[np.uint64], r: NDArray[np.uint64]) -> NDArray[np.float64]:
 
     return np.power(np.sqrt(np.divide(np.sum(q**2, axis=1), r-l)), 1/k)
@@ -115,7 +114,7 @@ def points(f: Callable, g: Callable) -> Callable:
 
 def initial_validated_data(c: np.uint64, p: Callable, q: Callable, r: Callable) -> Callable:
 
-    vld = (p('rb_x') - p('lb_x')) > c
+    vld = (p('r_x') - p('lb_x')) > c
 
     data = {
         'empty': np.all(~vld),
