@@ -6,46 +6,6 @@ import polynomial as poly
 from functools import reduce
 
 
-
-def k_rmsd(k: np.float64, q: NDArray[np.float64], l: NDArray[np.uint64], r: NDArray[np.uint64]) -> NDArray[np.float64]:
-
-    return np.power(np.sqrt(np.divide(np.sum(q**2, axis=1), r-l)), 1/k)
-
-def parabolic_area_enclosed(l_x: NDArray[np.uint64], v_x: NDArray[np.uint64], r_x: NDArray[np.uint64], i_y: NDArray[np.float64], v_y: NDArray[np.float64]) -> NDArray[np.float64]:
-
-    coefficients = poly.fit_polynomial(np.column_stack((l_x, v_x, r_x)), np.column_stack((i_y, v_y, i_y)), 2)
-
-    return ((i_y * r_x) - (i_y * l_x))  - poly.parabolic_area(coefficients, np.column_stack((l_x, r_x)))
-
-def sort_cubic_coordinates(v_x_0: NDArray[np.uint64], v_x_1: NDArray[np.uint64]) -> tuple[Callable, Callable]:
-
-    v_x = np.column_stack((v_x_0, v_x_1))
-
-    v_x_s = np.argsort(v_x, axis=1)
-
-    return lambda : np.take_along_axis(v_x, v_x_s, axis=1), \
-           lambda v_0, v_1: np.take_along_axis(np.column_stack((v_0, v_1)), v_x_s, axis=1)
-
-def cubic_area_enclosed(l_x: NDArray[np.uint64], v_x_0: NDArray[np.uint64], v_x_1: NDArray[np.uint64], r_x: NDArray[np.uint64], i_y: NDArray[np.float64], v_y_0: NDArray[np.float64], v_y_1: NDArray[np.float64]) -> NDArray[np.float64]:
-
-    v = sort_cubic_coordinates(v_x_0, v_x_1)
-
-    coefficients = poly.fit_polynomial(np.column_stack((l_x, v[0](), r_x)), np.column_stack((i_y, v[1](v_y_0, v_y_1), i_y)), 3)
-
-    return ((i_y * r_x) - (i_y * l_x))  - poly.cubic_area(coefficients, np.column_stack((l_x, r_x)))
-
-def euclidean_distance(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64], i_y: NDArray[np.float64], v_y: NDArray[np.float64]) -> NDArray[np.float64]:
-
-    return np.sqrt(((v_x - i_x)**2) + ((v_y - i_y)**2))
-
-def slope(i_x: NDArray[np.uint64], v_x: NDArray[np.uint64], i_y: NDArray[np.float64], v_y: NDArray[np.float64]) -> NDArray[np.float64]:
-
-    return np.abs(np.divide((v_y - i_y), (v_x - i_x)))
-
-def percentage_diff(i_y: NDArray[np.uint64], v_y: NDArray[np.uint64]) -> NDArray[np.float64]:
-
-    return 100*np.divide(np.abs(v_y - i_y), i_y)
-
 def upper_tri_mask(s: tuple[np.uint64, np.uint64]) -> NDArray[np.bool_]:
 
     return np.triu(np.ones(s, dtype=bool), k=1)
@@ -119,7 +79,6 @@ def initial_validated_data(c: np.uint64, p: Callable, q: Callable, r: Callable) 
     vld = (p('r_x') - p('lb_x')) > c
 
     data = {
-        'empty': np.all(~vld),
         'lb_x': p('lb_x')[vld],
         'rb_x': p('rb_x')[vld],
         'r_x': p('r_x')[vld],
@@ -211,51 +170,14 @@ def preliminary_data_y(f: Callable, g: Callable) -> Callable:
 
 def resistance_data(f: Callable, g: Callable) -> Callable:
 
-    parab = lambda d,i: parabolic_area_enclosed(f('lb_x'), f(f'{d}v_x_{i}'), f('r_x'), g('i_y'), g(f'{d}v_y_{i}'))
-    eucl_slop = lambda fun,i: fun(f('i_x'), f(f'uv_x_{i}'), g('i_y'), g(f'uv_y_{i}'))
-    perc_diff = lambda i: percentage_diff(g('i_y'), g(f'uv_y_{i}'))
-    
     data = {
-        'k_rmsd': lambda k: k_rmsd(k, f('ipm'), f('lb_x'), f('r_x')),
-        'upper_parabolic_area_enclosed_0': lambda : parab('u', 0),
-        'upper_parabolic_area_enclosed_1': lambda : parab('u', 1),
-        'lower_parabolic_area_enclosed_0': lambda : parab('l', 0),
-        'lower_parabolic_area_enclosed_1': lambda : parab('l', 1),
-        'cubic_area_enclosed': lambda : cubic_area_enclosed(f('lb_x'), f('uv_x_0'), f('uv_x_1'), f('r_x'), g('i_y'), g('uv_y_0'), g('uv_y_1')),
-        'euclidean_distance_0': lambda : eucl_slop(euclidean_distance,0),
-        'euclidean_distance_1': lambda : eucl_slop(euclidean_distance,1),
-        'slope_0': lambda : eucl_slop(slope,0),
-        'slope_1': lambda : eucl_slop(slope,1),
-        'percentage_diff_0': lambda : perc_diff(0),
-        'percentage_diff_1': lambda : perc_diff(1),
-        'acceleration': lambda f_tf: acceleration_(f_tf, g('start_time_y'), g('end_time_y'), g('i_y'))
+        'x_parameter_package': lambda op: op(f),
+        'x_y_parameter_package': lambda op: op(f,g),
+        'y_parameter_package': lambda op: op(g)
     }
     
     return lambda s: data[s]
 
-def acceleration_(f_tf: Callable, st: NDArray[np.datetime64], et: NDArray[np.datetime64], i_y: NDArray[np.float64]):
-
-    t_i = first_points((f_tf('time') >= st[:,None]) & (f_tf('time') < et[:,None]) & (f_tf('price') > i_y[:,None]))
-
-    p0 = f_tf('time')[t_i]
-
-    p3 = p0 - np.timedelta64(3,'s')
-
-    p2 = p0 - np.timedelta64(2,'s')
-
-    p1 = p0 - np.timedelta64(1,'s')
-
-    d = np.column_stack((
-        np.sum(((f_tf('time') >= p3[:,None]) & (f_tf('time') < p2[:,None])) * f_tf('size'), axis=1),
-        np.sum(((f_tf('time') >= p2[:,None]) & (f_tf('time') < p1[:,None])) * f_tf('size'), axis=1),
-        np.sum(((f_tf('time') >= p1[:,None]) & (f_tf('time') < p0[:,None])) * f_tf('size'), axis=1)
-    ))
-
-    i = np.array([[0,1,2]]*len(d))
-
-    c = poly.fit_polynomial(i,d,2)
-
-    return c[:,2]*2
 
 def last_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
 
@@ -284,53 +206,77 @@ def right_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
     return default_points(first_points(m))
 
 
-
-def initial_data(c: np.uint64, f_df: Callable) -> Callable:
+def ivd_params(f_df: Callable) -> Callable:
 
     f_rm = relational_matrices(f_df)
 
     f_pm = point_masks(f_rm)
 
-    f_ivd = initial_validated_data(c, points(f_pm, f_df), f_rm, f_pm)
+    f_p = points(f_pm, f_df)
+
+    return lambda f_ivd: f_ivd(f_rm, f_pm, f_p)
+
+def init_validated_data(c: np.uint64, f_df: Callable) -> Callable:
+
+    f_ivd = ivd_params(f_df)(lambda f_rm, f_pm, f_p: initial_validated_data(c, f_p, f_rm, f_pm))
 
     return next_validated_data(f_ivd, f_ivd)
 
 
-def place_holder(f_nvd: Callable) -> Callable:
+def preliminary_data(f_df: Callable) -> Callable:
 
-    data = {
-        'preliminary_data_x': preliminary_data_x(f_nvd, boundary_mask(f_nvd)),
-        'resistance_data': lambda f_df: resistance_data(data['preliminary_data_x'], preliminary_data_y(f_df, data['preliminary_data_x'])),
-        'next_validated_data': next_validated_data(f_nvd, variable_data(f_nvd))
-    }
+    f_pd = lambda f_px: (f_px, preliminary_data_y(f_df, f_px))
 
-    return lambda s: data[s]
+    return lambda f_vd: f_pd(preliminary_data_x(f_vd, boundary_mask(f_vd)))
 
 def operations(*args: Callable) -> Callable:
 
     return lambda f, l: reduce(lambda acc, x: np.column_stack((acc, x)), map(lambda g: g(f), args), np.empty((l,0)))
 
-def build_resistance_data(f_nvd: Callable, f_df: Callable, f_op: Callable):
+def build_resistance_data(f_vd: Callable, f_pd: Callable, f_op: Callable):
 
-    if f_nvd('empty'):
+    if f_vd('empty'):
         return 
+    
+    f_px, f_py = f_pd(f_vd)
 
-    h = place_holder(f_nvd)
+    f_op(resistance_data(f_px, f_py), f_vd('i_x').shape[0])
 
-    f_op(h('resistance_data')(f_df), f_nvd('i_x').shape[0])
-
-    return build_resistance_data(h('next_validated_data'), f_df, f_op)
+    return build_resistance_data(next_validated_data(f_vd, variable_data(f_vd)), f_pd, f_op)
 
 
 def res_data(df: pd.DataFrame, gap: np.uint64, *args: Callable):
 
     f_df = data_frame(df)
 
-    return build_resistance_data(initial_data(gap, f_df), f_df, operations(args))
+    return build_resistance_data(init_validated_data(gap, f_df), preliminary_data(f_df), operations(args))
 
 
+def acceleration_(f_tf: Callable, st: NDArray[np.datetime64], et: NDArray[np.datetime64], i_y: NDArray[np.float64]):
 
-def acceleration(tf: pd.DataFrame) -> Callable:
+    t_i = first_points((f_tf('time') >= st[:,None]) & (f_tf('time') < et[:,None]) & (f_tf('price') > i_y[:,None]))
+
+    p0 = f_tf('time')[t_i]
+
+    p3 = p0 - np.timedelta64(3,'s')
+
+    p2 = p0 - np.timedelta64(2,'s')
+
+    p1 = p0 - np.timedelta64(1,'s')
+
+    d = np.column_stack((
+        np.sum(((f_tf('time') >= p3[:,None]) & (f_tf('time') < p2[:,None])) * f_tf('size'), axis=1),
+        np.sum(((f_tf('time') >= p2[:,None]) & (f_tf('time') < p1[:,None])) * f_tf('size'), axis=1),
+        np.sum(((f_tf('time') >= p1[:,None]) & (f_tf('time') < p0[:,None])) * f_tf('size'), axis=1)
+    ))
+
+    i = np.array([[0,1,2]]*len(d))
+
+    c = poly.fit_polynomial(i,d,2)
+
+    return c[:,2]*2
+
+def acceleration(f_tf: Callable) -> Callable:
 
     data = {
         'time': tf.index.values,
@@ -342,48 +288,91 @@ def acceleration(tf: pd.DataFrame) -> Callable:
 
 def k_rmsd(k: np.float64) -> Callable:
 
-    return lambda f: f('k_rmsd')(k)
+    f_krmsd = lambda f: np.power(np.sqrt(np.divide(np.sum(f('ipm')**2, axis=1), f('r_x')-f('lb_x'))), 1/k)
+
+    return lambda f: f('x_parameter_package')(f_krmsd)
+
+def parabolic_area_enclosed(f: Callable, g: Callable, i: np.uint64, d: np.char) -> NDArray[np.float64]:
+
+    coefficients = poly.fit_polynomial(np.column_stack((f('lb_x'), f(f'{d}v_x_{i}'), f('r_x'))), np.column_stack((g('i_y'), g(f'{d}v_y_{i}'), g('i_y'))), 2)
+
+    return ((g('i_y') * f('r_x')) - (g('i_y') * f('lb_x')))  - poly.parabolic_area(coefficients, np.column_stack((f('lb_x'), f('r_x'))))
 
 def first_upper_parabolic_area_enclosed() -> Callable:
-        
-    return lambda f: f('upper_parabolic_area_enclosed_0')()
+    
+    f_parab = lambda f, g: parabolic_area_enclosed(f,g,0,'u')
+
+    return lambda f: f('x_y_parameter_package')(f_parab)
 
 def second_upper_parabolic_area_enclosed() -> Callable:
         
-    return lambda f: f('upper_parabolic_area_enclosed_1')()
+    f_parab = lambda f, g: parabolic_area_enclosed(f,g,1,'u')
+
+    return lambda f: f('x_y_parameter_package')(f_parab)
 
 def first_lower_parabolic_area_enclosed() -> Callable:
         
-    return lambda f: f('lower_parabolic_area_enclosed_0')()
+    f_parab = lambda f, g: parabolic_area_enclosed(f,g,0,'l')
+
+    return lambda f: f('x_y_parameter_package')(f_parab)
     
 def second_lower_parabolic_area_enclosed() -> Callable:
         
-    return lambda f: f('lower_parabolic_area_enclosed_1')()
+    f_parab = lambda f, g: parabolic_area_enclosed(f,g,1,'l')
+
+    return lambda f: f('x_y_parameter_package')(f_parab)
 
 def cubic_area_enclosed() -> Callable:
-        
-    return lambda f: f('cubic_area_enclosed')()
+
+    f_coeff = lambda f,g: poly.fit_polynomial(np.column_stack((f('lb_x'), f('uv_x_0'), f('uv_x_1'), f('r_x'))), np.column_stack((g('i_y'), g('uv_y_0'), g('uv_y_1'), g('i_y'))), 3)
+    f_cubic = lambda f, g: ((g('i_y') * f('r_x')) - (g('i_y') * f('lb_x')))  - poly.cubic_area(f_coeff(f,g), np.column_stack((f('lb_x'), f('r_x'))))
+
+    return lambda f: f('x_y_parameter_package')(f_cubic)
+
+def euclidean_distance(f: Callable, g: Callable, i: np.uint64) -> NDArray[np.float64]:
+
+    return np.sqrt(((f(f'uv_x_{i}') - f('i_x'))**2) + ((g(f'uv_y_{i}') - g('i_y'))**2))
 
 def first_euclidean_distance() -> Callable:
-        
-    return lambda f: f('euclidean_distance_0')()
+    
+    f_eucl = lambda f,g: euclidean_distance(f,g,0)
+
+    return lambda f: f('x_y_parameter_package')(f_eucl)
 
 def second_euclidean_distance() -> Callable:
-        
-    return lambda f: f('euclidean_distance_1')()
+    
+    f_eucl = lambda f,g: euclidean_distance(f,g,1)
+
+    return lambda f: f('x_y_parameter_package')(f_eucl)
+
+def slope(f: Callable, g: Callable, i: np.uint64) -> NDArray[np.float64]:
+
+    return np.abs(np.divide((g(f'uv_y_{i}') - g('i_y')), (f(f'uv_x_{i}') - f('i_x'))))
 
 def first_slope() -> Callable:
     
-    return lambda f: f('slope_0')()
+    f_slope = lambda f,g: slope(f,g,0)
+
+    return lambda f: f('x_y_parameter_package')(f_slope)
 
 def second_slope() -> Callable:
     
-    return lambda f: f('slope_1')() 
+    f_slope = lambda f,g: slope(f,g,1)
+
+    return lambda f: f('x_y_parameter_package')(f_slope)
+
+def percentage_diff(g: Callable, i: np.uint64) -> NDArray[np.float64]:
+
+    return 100*np.divide(np.abs(g(f'uv_y_{i}') - g('i_y')), g('i_y'))
 
 def first_percentage_diff() -> Callable:
     
-    return lambda f: f('percentage_diff_0')()
+    f_perc = lambda g: percentage_diff(g, 0)
+
+    return lambda f: f('y_parameter_package')(f_perc)
 
 def second_percentage_diff() -> Callable:
     
-    return lambda f: f('percentage_diff_1')()
+    f_perc = lambda g: percentage_diff(g, 1)
+
+    return lambda f: f('y_parameter_package')(f_perc)
