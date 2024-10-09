@@ -27,14 +27,25 @@ def diff_matrix(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.fl
 
     return a - b.reshape(-1,1)
 
-def data_frame(df: pd.DataFrame) -> Callable:
+def bar_frame(df: pd.DataFrame) -> Callable:
 
     data = {
+        'time': df.index.values,
         'range_x': np.arange(len(df)-1),
         'top_p': df['top'].values[:-1],
         'bottom_p': df['bottom'].values[:-1],
-        'high_p': df['high'].values[:-1],
-        'time': df.index.values
+        'high_p': df['high'].values[:-1]
+        
+    }
+
+    return lambda s: data[s]
+
+def trade_frame(df: pd.DataFrame) -> Callable:
+
+    data = {
+        'time': df.index.values,
+        'price': df['price'].values,
+        'size': df['size'].values
     }
 
     return lambda s: data[s]
@@ -247,40 +258,12 @@ def build_resistance_data(f_vd: Callable, f_pd: Callable, f_op: Callable):
 
 def res_data(df: pd.DataFrame, gap: np.uint64, *args: Callable):
 
-    f_df = data_frame(df)
+    f_df = bar_frame(df)
 
     return build_resistance_data(init_validated_data(gap, f_df), preliminary_data(f_df), operations(args))
 
 
-def acceleration_(f_tf: Callable, st: NDArray[np.datetime64], et: NDArray[np.datetime64], i_y: NDArray[np.float64]):
-
-    t_i = first_points((f_tf('time') >= st[:,None]) & (f_tf('time') < et[:,None]) & (f_tf('price') > i_y[:,None]))
-
-    p = (f_tf('time')[t_i], map(lambda t: p[0] - np.timedelta64(t,'s'), range(3,0,-1)))
-
-    p3 = p0 - np.timedelta64(3,'s')
-
-    p2 = p0 - np.timedelta64(2,'s')
-
-    p1 = p0 - np.timedelta64(1,'s')
-
-    d = np.column_stack((
-        np.sum(((f_tf('time') >= p3[:,None]) & (f_tf('time') < p2[:,None])) * f_tf('size'), axis=1),
-        np.sum(((f_tf('time') >= p2[:,None]) & (f_tf('time') < p1[:,None])) * f_tf('size'), axis=1),
-        np.sum(((f_tf('time') >= p1[:,None]) & (f_tf('time') < p0[:,None])) * f_tf('size'), axis=1)
-    ))
-
-    t = reduce(lambda acc, x: acc + [acc[0] - np.timedelta64(x,'s')], range(3,0,-1), [f_tf('time')[t_i]])
-
-    p = np.column_stack((list(map(lambda i: np.sum(((f_tf('time') >= t[i][:,None]) & (f_tf('time') < t[i-1][:,None])) * f_tf('size'), axis=1), range(3,0,-1)))))
-
-    i = np.array([[0,1,2]]*len(d))
-
-    c = poly.fit_polynomial(i,d,2)
-
-    return c[:,2]*2
-
-def f_v(f_tf: Callable, g: Callable, r: range):
+def f_vt(f_tf: Callable, g: Callable, r: range):
 
     # First breakout trade indices
     bt_x = first_points((f_tf('time') >= g('start_time_y')[:,None]) & (f_tf('time') < g('end_time_y')[:,None]) & (f_tf('price') > g('i_y')[:,None]))
@@ -289,25 +272,21 @@ def f_v(f_tf: Callable, g: Callable, r: range):
 
     return lambda f_vy: poly.fit_polynomial(np.array([[0,1,2]]*len(g('i_y'))), f_vy(si), 2)
 
-def velocity(f_tf: Callable, g: Callable, r: range):
+def volume_time(f_tf: Callable, g: Callable, r: range):
 
     f_vi = lambda si, i: np.sum(((f_tf('time') >= si[i][:,None]) & (f_tf('time') < si[i-1][:,None])) * f_tf('size'), axis=1)
     
     f_vy = lambda si: np.column_stack((list(map(lambda i: f_vi(si, i), r))))
 
-    return f_v(f_tf, g, r)(f_vy)
+    return f_vt(f_tf, g, r)(f_vy)
 
 def acceleration(f_tf: Callable) -> Callable:
 
-    lambda g: velocity(f_tf, g, range(3,0,-1))
+    f_ddvt = lambda vt: vt[:, 2]*2
 
-    data = {
-        'time': tf.index.values,
-        'price': tf['price'].values,
-        'size': tf['size'].values
-    }
+    f_a = lambda g: f_ddvt(volume_time(f_tf, g, range(3,0,-1)))
 
-    return lambda f: f('acceleration')(lambda s: data[s])
+    return lambda f: f('y_parameter_package')(f_a)
 
 def k_rmsd(k: np.float64) -> Callable:
 
