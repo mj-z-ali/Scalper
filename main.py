@@ -4,6 +4,7 @@ from typing import Callable
 from numpy.typing import NDArray
 import client
 import acquire
+from analyze import resistance_data, k_rmsd, acceleration, first_upper_parabolic_area_enclosed, second_upper_parabolic_area_enclosed, first_lower_parabolic_area_enclosed, second_lower_parabolic_area_enclosed, cubic_area_enclosed, first_euclidean_distance, second_euclidean_distance, first_slope, second_slope, first_percentage_diff, second_percentage_diff
 import k_means as km
 import plt
 from alpaca_trade_api.rest import REST, TimeFrame, TimeFrameUnit
@@ -13,15 +14,15 @@ from functools import reduce
 pd.set_option('display.max_columns', None)
 
 
-def append_top_bottom_columns(bar_df: pd.DataFrame) -> pd.DataFrame:
+def append_top_bottom_columns(bf: pd.DataFrame) -> pd.DataFrame:
     # Bar dataframes directly from the Alpaca API do not have bar tops
     # and bottoms information. Compute them and append it as new columns.
     # Results in a new dataframe, leaving the original unchanged.
 
-    red = bar_df['close'].values <= bar_df['open'].values
+    red = bf['close'].values <= bf['open'].values
 
     # Create a new dataframe with the new columns.
-    return bar_df.assign(red=red, top=np.where(red, bar_df['open'], bar_df['close']), bottom=np.where(red, bar_df['close'], bar_df['open']))
+    return bf.assign(red=red, top=np.where(red, bf['open'], bf['close']), bottom=np.where(red, bf['close'], bf['open']))
 
 def f_create_bar_frame(bar_interval: int, bar_unit: TimeFrameUnit) -> Callable:
 
@@ -29,75 +30,117 @@ def f_create_bar_frame(bar_interval: int, bar_unit: TimeFrameUnit) -> Callable:
 
 def f_create_frame(data_client: REST, symbol: str): 
 
-    return lambda f_df, f_dt: time_based_partition(f_df(data_client, symbol, f_dt('start_date'), f_dt('end_date')), f_dt('interval'))
+    return lambda f_df, f_tm: f_df(data_client, symbol, f_tm('start_date'), f_tm('end_date'))
 
-def f_date(start_date: str, end_date: str, interval: str) -> Callable:
+def f_time(start_date: str, end_date: str) -> Callable:
 
-    data = {'start_date': start_date, 'end_date': end_date, 'interval': interval}
+    data = {'start_date': start_date, 'end_date': end_date}
 
     return lambda s: data[s]
 
-def time_based_partition(df: pd.DataFrame, interval: str) -> Callable:
+def time_based_partition(df: pd.DataFrame, interval: str) -> tuple[Callable, int]:
     # Partition a single dataframe into a list of dataframes based on time interval.
 
     partition_generator = map(lambda df_pair: df_pair[1], df.resample(interval))
 
     partition = list(filter(lambda df_interval: not df_interval.dropna().empty, partition_generator))
 
-    return lambda f,i: f(partition[i])
+    return lambda i: partition[i], len(partition)
 
-def f_bar_frame(f_dt: Callable, f_cf: Callable, bar_interval: int, bar_unit: TimeFrameUnit) -> Callable:
+def f_trade_frame_list(f_hd: Callable) -> Callable:
 
-    try:
-        f_bf = time_based_partition(pd.read_csv(f"{f_dt('start_date')}-to-{f_dt('end_date')}-{bar_interval}-{bar_unit.value}.csv", parse_dates=['timestamp'], index_col='timestamp'), f_dt(' interval'))
+    f_tf_l, _ = time_based_partition(f_hd(trade_frame), '1D')
+
+    return lambda i: f_trade_frame(f_tf_l(i))
+
+def f_bar_frame_list(f_hd: Callable, b_intv: int, b_u: TimeFrameUnit) -> tuple[Callable, int]:
+
+    f_bf_l, n_days = time_based_partition(f_hd(lambda f_tm, f_cf: bar_frame(f_tm, f_cf, b_intv, b_u)), '1D')
+
+    return lambda i: f_bar_frame(f_bf_l(i)), n_days
+
+def f_multi_day_resistance_data(f_hd: Callable, min_line_width: int, bar_interval: int, bar_unit: TimeFrameUnit) -> Callable:
+
+    f_bf_l, n_days = f_bar_frame_list(f_hd, bar_interval, bar_unit)
+
+    return lambda f_args, n_args: reduce(lambda acc, x: np.concatenate((acc, resistance_data(f_bf_l(x), x, min_line_width, *f_args(x)))), range(n_days), np.empty((0, n_args)))
+
+
+def f_bar_frame(df: pd.DataFrame) -> Callable:
+
+    data = {
+        'time': df.index.values,
+        'range_x': np.arange(len(df)-1),
+        'top_p': df['top'].values[:-1],
+        'bottom_p': df['bottom'].values[:-1],
+        'high_p': df['high'].values[:-1]
         
-        return f_bf
-    
-    except Exception as e:
+    }
 
-        f_bf = f_cf(f_create_bar_frame(bar_interval, bar_unit), f_dt)
+    return lambda s: data[s]
 
-        f_bf.to_csv(f"{f_dt('start_date')}-to-{f_dt('end_date')}-{bar_interval}-{bar_unit.value}.csv", index=True)
+def f_trade_frame(df: pd.DataFrame) -> Callable:
 
-        return f_bf
+    data = {
+        'time': df.index.values,
+        'price': df['price'].values,
+        'size': df['size'].values
+    }
 
-def f_trade_frame(f_dt: Callable, f_cf: Callable) -> Callable:
+    return lambda s: data[s]
+
+def bar_frame(f_tm: Callable, f_cf: Callable, bar_interval: int, bar_unit: TimeFrameUnit) -> Callable:
 
     try:
-        f_tf = time_based_partition(pd.read_csv(f"{f_dt('start_date')}-to-{f_dt('end_date')}-tick.csv", parse_dates=['timestamp'], index_col='timestamp'), f_dt(' interval'))
-
-        return f_tf
+        bf = pd.read_csv(f"{f_tm('start_date')}-to-{f_tm('end_date')}-{bar_interval}-{bar_unit.value}.csv", parse_dates=['timestamp'], index_col='timestamp')
+        
+        return bf
     
     except Exception as e:
 
-        f_tf = f_cf(acquire.trades, f_dt)
+        bf = f_cf(f_create_bar_frame(bar_interval, bar_unit), f_tm)
 
-        f_tf.to_csv(f"{f_dt('start_date')}-to-{f_dt('end_date')}-tick.csv")
+        bf.to_csv(f"{f_tm('start_date')}-to-{f_tm('end_date')}-{bar_interval}-{bar_unit.value}.csv", index=True)
 
-        return f_tf
+        return bf
+
+def trade_frame(f_tm: Callable, f_cf: Callable) -> Callable:
+
+    try:
+        tf = pd.read_csv(f"{f_tm('start_date')}-to-{f_tm('end_date')}-tick.csv", parse_dates=['timestamp'], index_col='timestamp')
+
+        return tf
     
+    except Exception as e:
 
-def time_based_partition(df: pd.DataFrame, interval: str) -> Callable:
-    # Partition a single dataframe into a list of dataframes based on time interval.
+        tf = f_cf(acquire.trades, f_tm)
 
-    partition_generator = map(lambda df_pair: df_pair[1], df.resample(interval))
+        tf.to_csv(f"{f_tm('start_date')}-to-{f_tm('end_date')}-tick.csv")
 
-    partition = list(filter(lambda df_interval: not df_interval.dropna().empty, partition_generator))
+        return tf
+    
+def historical_data(symbol: str, start_date: str, end_date: str):
+    
+    data_client = client.establish_client(client.init(paper=True))
 
-    return lambda f,i: f(partition[i])
+    f_tm = f_time(start_date, end_date)
 
+    f_cf = f_create_frame(data_client, symbol)
+
+    return lambda f_frame: f_frame(f_tm, f_cf)
 
 def main() -> int:
 
-    data_client = client.establish_client(client.init(paper=True))
+    f_hd = historical_data('SPY', '2024-05-17', '2024-08-17')
 
-    f_dt = f_date('2024-05-17', '2024-08-17', '1D')
+    f_data = f_multi_day_resistance_data(f_hd, 3, 5, TimeFrameUnit.Minute)
 
-    f_cf = f_create_frame(data_client, 'SPY')
+    f_tf_l = f_trade_frame_list(f_hd)
 
-    f_bf = f_bar_frame(f_dt, f_cf, 5, TimeFrameUnit.Minute)
+    # len?
+    f_args = lambda i: (k_rmsd(2), acceleration(f_tf_l(i)), first_upper_parabolic_area_enclosed(), second_upper_parabolic_area_enclosed(), first_lower_parabolic_area_enclosed(), second_lower_parabolic_area_enclosed(), cubic_area_enclosed(), first_euclidean_distance(), second_euclidean_distance(), first_slope(), second_slope(), first_percentage_diff(), second_percentage_diff())
 
-    f_tf = f_trade_frame(f_dt, f_cf)
+    f_data(f_args, n_args)
 
     # create_bars_and_trades_csv(data_client=data_client, bar_interval=5, bar_unit=TimeFrameUnit.Minute, start_date="2024-05-17", end_date="2024-08-17")
     

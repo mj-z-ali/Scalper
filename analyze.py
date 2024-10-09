@@ -27,28 +27,6 @@ def diff_matrix(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.fl
 
     return a - b.reshape(-1,1)
 
-def bar_frame(df: pd.DataFrame) -> Callable:
-
-    data = {
-        'time': df.index.values,
-        'range_x': np.arange(len(df)-1),
-        'top_p': df['top'].values[:-1],
-        'bottom_p': df['bottom'].values[:-1],
-        'high_p': df['high'].values[:-1]
-        
-    }
-
-    return lambda s: data[s]
-
-def trade_frame(df: pd.DataFrame) -> Callable:
-
-    data = {
-        'time': df.index.values,
-        'price': df['price'].values,
-        'size': df['size'].values
-    }
-
-    return lambda s: data[s]
 
 def relational_matrices(f: Callable) -> Callable:
 
@@ -179,7 +157,7 @@ def preliminary_data_y(f: Callable, g: Callable) -> Callable:
 
     return lambda s: data[s]
 
-def resistance_data(f: Callable, g: Callable) -> Callable:
+def parameter(f: Callable, g: Callable) -> Callable:
 
     data = {
         'x_parameter_package': lambda op: op(f),
@@ -244,24 +222,22 @@ def operations(*args: Callable) -> Callable:
 
     return lambda f, l: reduce(lambda acc, x: np.column_stack((acc, x)), map(lambda g: g(f), args), np.empty((l,0)))
 
-def build_resistance_data(f_vd: Callable, f_pd: Callable, f_op: Callable):
+def build_resistance_data(f_vd: Callable, f_pd: Callable, f_op: Callable, data: NDArray[np.float64]):
 
     if f_vd('empty'):
-        return 
+        return data
     
     f_px, f_py = f_pd(f_vd)
 
-    f_op(resistance_data(f_px, f_py), f_vd('i_x').shape[0])
+    new_data = np.concatenate((data, f_op(parameter(f_px, f_py), f_vd('i_x').shape[0])))
 
-    return build_resistance_data(next_validated_data(f_vd, variable_data(f_vd)), f_pd, f_op)
+    return build_resistance_data(next_validated_data(f_vd, variable_data(f_vd)), f_pd, f_op, new_data)
 
+def resistance_data(day: np.uint64, min_line_width: np.uint64, f_bf: Callable, *args: Callable):
 
-def res_data(df: pd.DataFrame, gap: np.uint64, *args: Callable):
+    data = build_resistance_data(init_validated_data(min_line_width, f_bf), preliminary_data(f_bf), operations(args), np.empty((0, len(args))))
 
-    f_df = bar_frame(df)
-
-    return build_resistance_data(init_validated_data(gap, f_df), preliminary_data(f_df), operations(args))
-
+    return np.column_stack((np.array([day]*data.shape[0]), data))
 
 def f_vt(f_tf: Callable, g: Callable, r: range):
 
