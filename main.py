@@ -63,7 +63,9 @@ def f_multi_day_resistance_data(f_hd: Callable, min_line_width: int, bar_interva
 
     f_bf_l, n_days = f_bar_frame_list(f_hd, bar_interval, bar_unit)
 
-    return lambda f_args, n_args: reduce(lambda acc, x: np.concatenate((acc, resistance_data(f_bf_l(x), x, min_line_width, *f_args(x)))), range(n_days), np.empty((0, n_args)))
+    f_res = lambda i, f_args: resistance_data(i, min_line_width, f_bf_l(i), *f_args(i))
+
+    return lambda f_args: reduce(lambda acc, x: np.concatenate((acc, f_res(x, f_args))), range(1, n_days), f_res(0, f_args))
 
 
 def f_bar_frame(df: pd.DataFrame) -> Callable:
@@ -140,34 +142,37 @@ def main() -> int:
     # len?
     f_args = lambda i: (k_rmsd(2), acceleration(f_tf_l(i)), first_upper_parabolic_area_enclosed(), second_upper_parabolic_area_enclosed(), first_lower_parabolic_area_enclosed(), second_lower_parabolic_area_enclosed(), cubic_area_enclosed(), first_euclidean_distance(), second_euclidean_distance(), first_slope(), second_slope(), first_percentage_diff(), second_percentage_diff())
 
-    f_data(f_args, n_args)
+    res_data = f_data(f_args)
+
+    print(res_data.shape)
+    print(res_data)
 
     # create_bars_and_trades_csv(data_client=data_client, bar_interval=5, bar_unit=TimeFrameUnit.Minute, start_date="2024-05-17", end_date="2024-08-17")
     
-    bars_ = pd.read_csv('2024-05-17-to-2024-08-17-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
+    # bars_ = pd.read_csv('2024-05-17-to-2024-08-17-5-Min.csv', parse_dates=['timestamp'], index_col='timestamp')
 
-    bars = analyze.append_top_bottom_columns(bars_)
+    # bars = analyze.append_top_bottom_columns(bars_)
     
-    trades = pd.read_csv('2024-05-17-to-2024-08-17-tick.csv', parse_dates=['timestamp'], index_col='timestamp')
+    # trades = pd.read_csv('2024-05-17-to-2024-08-17-tick.csv', parse_dates=['timestamp'], index_col='timestamp')
     
-    bars_per_day, resistance_data_function = analyze.resistance_data_function(bars, trades, pca_components(2))
+    # bars_per_day, resistance_data_function = analyze.resistance_data_function(bars, trades, pca_components(2))
 
-    resistance_data = resistance_data_function(all_bars, exclude_green_red_pattern, resistance_parabolic_area, resistance_parabolic_concavity, resistance_euclidean_1d, resistance_euclidean_2d, resistance_k_rmsd(lower_bound, resistance_zone_range, 2), resistance_relative_perc_diff, abs(resistance_slopes))
+    # resistance_data = resistance_data_function(all_bars, exclude_green_red_pattern, resistance_parabolic_area, resistance_parabolic_concavity, resistance_euclidean_1d, resistance_euclidean_2d, resistance_k_rmsd(lower_bound, resistance_zone_range, 2), resistance_relative_perc_diff, abs(resistance_slopes))
 
-    resistance_k_means_data = resistance_data[:,-2:]
+    # resistance_k_means_data = resistance_data[:,-2:]
 
     # resistance_k_means_data = reduce(lambda acc, x: np.row_stack((acc, x[:, -2:])), resistance_data, np.empty((0,2)))
     
-    centroids, labels = km.train(resistance_k_means_data, 10, 0, 100)
+    # centroids, labels = km.train(resistance_k_means_data, 10, 0, 100)
 
-    learned_resistance_data = resistance_data[labels==6]
+    # learned_resistance_data = resistance_data[labels==6]
 
     # learned_resistance_data = list(map(lambda data : data[km.inference(data[:,-2:], centroids) == 3], resistance_data))
 
     # bars_per_day = time_based_partition(bars, '1D')
-    resistance_data_per_day = list(map(lambda day: learned_resistance_data[learned_resistance_data[:,0] == day], list(range(len(bars_per_day))) ))
+    # resistance_data_per_day = list(map(lambda day: learned_resistance_data[learned_resistance_data[:,0] == day], list(range(len(bars_per_day))) ))
 
-    list(map(lambda bars, data: plt.plot_resistances(bars, data[:,1], data[:, 4:6], data[:, -2:]), bars_per_day, resistance_data_per_day))
+    # list(map(lambda bars, data: plt.plot_resistances(bars, data[:,1], data[:, 4:6], data[:, -2:]), bars_per_day, resistance_data_per_day))
 
 
     return 0
