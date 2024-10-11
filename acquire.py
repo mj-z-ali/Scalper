@@ -74,7 +74,7 @@ def apply_time_filter(group: pd.DataFrame) -> pd.DataFrame:
     start_time = time(13, 30) if is_dst else time(14, 30)
     end_time = time(20, 0) if is_dst else time(21, 0)
     
-    return group.between_time(start_time, end_time, inclusive="left")
+    return group.between_time(start_time, end_time)
 
 def start_min_end_date_pair(days_to_add: int, curr_end_date: str, curr_start_date: str) -> tuple[str, str]:
 
