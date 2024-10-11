@@ -84,7 +84,7 @@ def initial_validated_data(c: np.uint64, p: Callable, q: Callable, r: Callable) 
 def next_validated_data(f: Callable, g: Callable) -> Callable:
 
     vld = (g('r_x') <= f('rb_x')) & (g('r_x') != -1)
-
+    print(vld)
     data = {
         'empty': np.all(~vld),
         'lb_x': f('lb_x')[vld],
@@ -102,7 +102,7 @@ def next_validated_data(f: Callable, g: Callable) -> Callable:
 
 def variable_data(f: Callable) -> Callable:
 
-    r_mask = f('r_mask') & (f('columns') != f('r_x'))
+    r_mask = f('r_mask') & (f('columns') != f('r_x')[:,None])
 
     data = {
         'r_x': right_points(r_mask),
@@ -212,15 +212,15 @@ def init_validated_data(c: np.uint64, f_df: Callable) -> Callable:
     return next_validated_data(f_ivd, f_ivd)
 
 
-def preliminary_data(f_df: Callable) -> Callable:
+def preliminary_data(f_bf: Callable) -> Callable:
 
-    f_pd = lambda f_px: (f_px, preliminary_data_y(f_df, f_px))
+    f_pd = lambda f_px: (f_px, preliminary_data_y(f_bf, f_px))
 
     return lambda f_vd: f_pd(preliminary_data_x(f_vd, boundary_mask(f_vd)))
 
 def operations(*args: Callable) -> Callable:
 
-    return lambda f, l: reduce(lambda acc, x: np.column_stack((acc, x)), map(lambda g: g(f), args), np.empty((l,0)))
+    return lambda f, l: reduce(lambda acc, x: np.column_stack((acc, x)), map(lambda g: g(f), *args), np.empty((l,0)))
 
 def build_resistance_data(f_vd: Callable, f_pd: Callable, f_op: Callable, data: NDArray[np.float64]):
 
@@ -303,7 +303,7 @@ def second_lower_parabolic_area_enclosed() -> Callable:
 def cubic_area_enclosed() -> Callable:
 
     f_coeff = lambda f,g: poly.fit_polynomial(np.column_stack((f('lb_x'), f('uv_x_0'), f('uv_x_1'), f('r_x'))), np.column_stack((g('i_y'), g('uv_y_0'), g('uv_y_1'), g('i_y'))), 3)
-    f_cubic = lambda f, g: ((g('i_y') * f('r_x')) - (g('i_y') * f('lb_x')))  - poly.cubic_area(f_coeff(f,g), np.column_stack((f('lb_x'), f('r_x'))))
+    f_cubic = lambda f,g: ((g('i_y') * f('r_x')) - (g('i_y') * f('lb_x')))  - poly.cubic_area(f_coeff(f,g), np.column_stack((f('lb_x'), f('r_x'))))
 
     return lambda f: f('x_y_parameter_package')(f_cubic)
 
