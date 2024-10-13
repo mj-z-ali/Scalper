@@ -84,7 +84,7 @@ def initial_validated_data(c: np.uint64, p: Callable, q: Callable, r: Callable) 
 def next_validated_data(f: Callable, g: Callable) -> Callable:
 
     vld = (g('r_x') <= f('rb_x')) & (g('r_x') != -1)
-    print(vld)
+
     data = {
         'empty': np.all(~vld),
         'lb_x': f('lb_x')[vld],

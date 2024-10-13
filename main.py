@@ -12,7 +12,8 @@ from functools import reduce
 
 
 pd.set_option('display.max_columns', None)
-
+pd.set_option('display.max_rows',None)
+np.set_printoptions(threshold=np.inf, linewidth=np.inf)
 
 def append_top_bottom_columns(bf: pd.DataFrame) -> pd.DataFrame:
     # Bar dataframes directly from the Alpaca API do not have bar tops
@@ -133,7 +134,9 @@ def historical_data(symbol: str, start_date: str, end_date: str):
 
 def main() -> int:
 
-    f_hd = historical_data('SPY', '2024-05-17', '2024-08-17')
+    # f_hd = historical_data('SPY', '2024-05-17', '2024-08-17')
+    f_hd = historical_data('SPY', '2024-10-07', '2024-10-11')
+
 
     f_data = f_multi_day_resistance_data(f_hd, 3, 5, TimeFrameUnit.Minute)
 
