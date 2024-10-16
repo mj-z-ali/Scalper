@@ -2,13 +2,17 @@ import pandas as pd
 import numpy as np
 from typing import Callable
 from numpy.typing import NDArray
-import client
+import client as Client
 import acquire
 from analyze import resistance_data, k_rmsd, acceleration, first_upper_parabolic_area_enclosed, second_upper_parabolic_area_enclosed, first_lower_parabolic_area_enclosed, second_lower_parabolic_area_enclosed, cubic_area_enclosed, first_euclidean_distance, second_euclidean_distance, first_slope, second_slope, first_percentage_diff, second_percentage_diff
 import k_means as km
 import plt
 from alpaca_trade_api.rest import REST, TimeFrame, TimeFrameUnit
+from alpaca_trade_api.rest_async import AsyncRest
 from functools import reduce
+import asyncio
+
+
 
 
 pd.set_option('display.max_columns', None)
@@ -82,12 +86,12 @@ def f_bar_frame(df: pd.DataFrame) -> Callable:
 
     return lambda s: data[s]
 
-def f_trade_frame(df: pd.DataFrame) -> Callable:
+def f_trade_frame(tf: Callable) -> Callable:
 
     data = {
-        'time': df.index.values,
-        'price': df['price'].values,
-        'size': df['size'].values
+        'time': tf.index.values,
+        'price': tf['price'].values,
+        'size': tf['size'].values
     }
 
     return lambda s: data[s]
@@ -135,7 +139,7 @@ def historical_data(symbol: str, start_date: str, end_date: str):
 def main() -> int:
 
     # f_hd = historical_data('SPY', '2024-05-17', '2024-08-17')
-    f_hd = historical_data('SPY', '2024-10-07', '2024-10-11')
+    f_hd = historical_data('SPY', '2024-10-05', '2024-10-11')
 
 
     f_data = f_multi_day_resistance_data(f_hd, 3, 5, TimeFrameUnit.Minute)
@@ -180,6 +184,89 @@ def main() -> int:
 
     return 0
 
+def list_dates(date_range: tuple[str,str]) -> list[str]:
+
+    dates = pd.date_range(start=pd.to_datetime(date_range[0]), end=pd.to_datetime(date_range[1]), freq='1D').strftime("%Y-%m-%d").tolist()
+    
+    return dates
+
+def data(symbol: str) -> Callable:
+
+    f_index = lambda data_list: lambda i: data_list[i]
+
+    f = lambda date_list: lambda f_fetch: f_index(f_fetch(symbol)(date_list))
+
+    return lambda t_daterange: f(list_dates(t_daterange))
+
+def filter_open_market(df: pd.DataFrame) -> pd.DataFrame:
+
+    is_dst = df.index[0].tz_convert('America/New_York').dst() != pd.Timedelta(0)
+    start_time = pd.Timestamp('13:30') if is_dst else pd.Timestamp('14:30')
+    end_time = pd.Timestamp('20:00') if is_dst else pd.Timestamp('21:00')
+
+    return df.between_time(start_time.time(), end_time.time())
+
+
+def trades_concurrently(data_client: AsyncRest) -> Callable:
+    
+    open_market_only = lambda results: [f_trade_frame(open_market_tf) for _, tf in results if not tf.empty and not (open_market_tf := filter_open_market(tf)).dropna().empty]
+
+    async def fetch_trades(tasks:map) : return open_market_only(await asyncio.gather(*tasks))
+
+    return lambda symbol: lambda date_list: asyncio.run(fetch_trades(map(lambda date: asyncio.create_task(data_client.get_trades_async(symbol, date, date, limit=0xFFFFFFFF)), date_list)))
+        
+def trades(data_client: REST) -> Callable:
+    open_market_only = lambda results: [f_trade_frame(open_market_tf) for tf in results if not tf.empty and not (open_market_tf := filter_open_market(tf)).dropna().empty]
+
+    return lambda symbol: lambda date_list: open_market_only(list(map(lambda date: data_client.get_trades(symbol, date, date).df, date_list)))
+
+
 
 if __name__ == "__main__":
-    main()
+    # main()
+    # data_client = client.establish_client(client.init(paper=True))
+    client = Client.initialize(paper=True)
+    trade_client = client('trade')
+    data_client = client('data')
+
+    print('Getting Trades')
+
+    # Fetch trades concurrently
+    # tf = asyncio.run(fetch_trades_concurrently(async_rest_data_client))
+    spy_october = data('SPY')(('2024-10-9', '2024-10-11'))
+    spy_october_trades = spy_october(trades_concurrently(data_client))
+    # sym, tf  = asyncio.run(async_rest_data_client.get_trades_async('SPY', '2024-10-11', '2024-10-11',limit=0xFFFFFFFF))
+    # acquire.trades(data_client, "SPY", '2024-10-11', '2024-10-11')
+    # tf = rest_data_client.get_trades('SPY','2024-10-09', '2024-10-11').df
+    print(len(spy_october_trades(0)('time')))
+    print(spy_october_trades(0)('time')[:5])
+
+
+
+
+
+'''
+Observation:
+
+sym, tf  = asyncio.run(async_rest_data_client.get_trades_async('SPY', '2024-10-09', '2024-10-11', limit=0xFFFFFFFF))
+
+real    0m57.450s
+user    0m14.748s
+sys     0m1.998s
+
+
+
+tf = asyncio.run(fetch_trades_concurrently(async_rest_data_client))
+
+real    0m28.336s
+user    0m13.975s
+sys     0m1.096s
+
+
+tf = rest_data_client.get_trades('SPY','2024-10-09', '2024-10-11').df
+
+real    3m18.544s
+user    0m13.238s
+sys     0m1.389s
+
+'''
