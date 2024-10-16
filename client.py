@@ -1,24 +1,22 @@
 import os
 from alpaca_trade_api.rest import REST
+from  alpaca_trade_api.rest_async import AsyncRest
 from alpaca_trade_api.stream import Stream
+
 
 # Alpaca API client setup for trading, streaming, and historical data.
 
-def init(paper: bool, api_key: str = None, secret_key: str = None) -> dict:
-    API_KEY_ENV_VAR = 'ALPACA_API_KEY' if paper else 'ALPACA_API_KEY_LIVE'
-    SECRET_KEY_ENV_VAR = 'ALPACA_SECRET_KEY' if paper else 'ALPACA_SECRET_KEY_LIVE'
-    BASE_URL = 'https://paper-api.alpaca.markets/v2' if paper else 'https://api.alpaca.markets'
-    return { 
-        'key_id': api_key or os.getenv(API_KEY_ENV_VAR), 
-        'secret_key': secret_key or os.getenv(SECRET_KEY_ENV_VAR), 
-        'base_url': BASE_URL 
+def initialize(paper: bool) -> dict:
+
+    key_id = os.getenv('ALPACA_API_KEY') if paper else os.getenv('ALPACA_API_KEY_LIVE')
+    secret_key = os.getenv('ALPACA_SECRET_KEY') if paper else os.getenv('ALPACA_SECRET_KEY_LIVE')
+    base_url = 'https://paper-api.alpaca.markets' if paper else 'https://api.alpaca.markets'
+   
+    clients = {
+        'trade': lambda: REST(key_id, secret_key, base_url, 'v2' ),
+        'data': lambda: AsyncRest(key_id, secret_key,'https://data.alpaca.markets', 'v2'),
+        'stream': lambda: Stream(key_id, secret_key, base_url, 'https://stream.data.alpaca.markets', 'sip')
     }
 
-# Set up the Alpaca client for historical data and executing trades
-def establish_client(params: dict, api_version: str = 'v2') -> REST:
-    return REST(**params, api_version=api_version) 
+    return lambda client_str: clients[client_str]()
 
-# Set up the Alpaca client for streaming live data 
-def establish_stream(params: dict) -> Stream:
-    return Stream(**params)
-    
