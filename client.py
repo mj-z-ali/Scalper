@@ -2,11 +2,12 @@ import os
 from alpaca_trade_api.rest import REST
 from  alpaca_trade_api.rest_async import AsyncRest
 from alpaca_trade_api.stream import Stream
+from typing import Callable
 
 
 # Alpaca API client setup for trading, streaming, and historical data.
 
-def initialize(paper: bool) -> dict:
+def initialize(paper: bool) -> Callable:
 
     key_id = os.getenv('ALPACA_API_KEY') if paper else os.getenv('ALPACA_API_KEY_LIVE')
     secret_key = os.getenv('ALPACA_SECRET_KEY') if paper else os.getenv('ALPACA_SECRET_KEY_LIVE')
