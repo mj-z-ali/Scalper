@@ -184,20 +184,31 @@ def main() -> int:
 
     return 0
 
-def list_dates(date_range: tuple[str,str]) -> list[str]:
+# def list_dates(date_range: tuple[str,str]) -> list[str]:
 
-    dates = pd.date_range(start=pd.to_datetime(date_range[0]), end=pd.to_datetime(date_range[1]), freq='1D').strftime("%Y-%m-%d").tolist()
+#     dates = pd.date_range(start=pd.to_datetime(date_range[0]), end=pd.to_datetime(date_range[1]), freq='1D').strftime("%Y-%m-%d").tolist()
     
-    return dates
+#     return dates
+
+
+# def data(symbol: str) -> Callable:
+
+#     g = lambda data_list: (len(data_list),lambda i: data_list[i])
+
+#     f = lambda date_list: lambda f_fetch: g(f_fetch(symbol)(date_list))
+
+#     return lambda t_daterange: f(list_dates(t_daterange))
+
 
 def data(symbol: str) -> Callable:
 
-    f_index = lambda data_list: lambda i: data_list[i]
-
-    f = lambda date_list: lambda f_fetch: f_index(f_fetch(symbol)(date_list))
-
-    return lambda t_daterange: f(list_dates(t_daterange))
-
+    return lambda daterange: (
+        dates:= pd.date_range(start=pd.to_datetime(daterange[0]), end=pd.to_datetime(daterange[1]), freq='1D').strftime("%Y-%m-%d").tolist(),
+        lambda f_fetch: (len(data_list:= f_fetch(symbol)(dates)), lambda i: data_list[i])
+    )[1]
+    
+f = lambda data_list: (len(data_list),lambda i: data_list[i])
+lambda f_fetch: f(f_fetch(symbol)(dates))
 def filter_open_market(df: pd.DataFrame) -> pd.DataFrame:
 
     is_dst = df.index[0].tz_convert('America/New_York').dst() != pd.Timedelta(0)
@@ -206,6 +217,13 @@ def filter_open_market(df: pd.DataFrame) -> pd.DataFrame:
 
     return df.between_time(start_time.time(), end_time.time())
 
+def bars_concurrently(data_client: AsyncRest) -> Callable:
+
+    open_market_only = lambda results: [f_bar_frame(open_market_bf) for _, bf in results if not bf.empty and not (open_market_bf := filter_open_market(bf)).dropna().empty]
+
+    async def fetch_bars(tasks:map) : return open_market_only(await asyncio.gather(*tasks))
+
+    return lambda symbol: lambda date_list: asyncio.run(fetch_bars(map(lambda date: asyncio.create_task(data_client.get_bars_async(symbol, date, date)))))
 
 def trades_concurrently(data_client: AsyncRest) -> Callable:
     
@@ -216,9 +234,11 @@ def trades_concurrently(data_client: AsyncRest) -> Callable:
     return lambda symbol: lambda date_list: asyncio.run(fetch_trades(map(lambda date: asyncio.create_task(data_client.get_trades_async(symbol, date, date, limit=0xFFFFFFFF)), date_list)))
         
 def trades(data_client: REST) -> Callable:
+
     open_market_only = lambda results: [f_trade_frame(open_market_tf) for tf in results if not tf.empty and not (open_market_tf := filter_open_market(tf)).dropna().empty]
 
     return lambda symbol: lambda date_list: open_market_only(list(map(lambda date: data_client.get_trades(symbol, date, date).df, date_list)))
+
 
 
 
@@ -233,14 +253,13 @@ if __name__ == "__main__":
 
     # Fetch trades concurrently
     # tf = asyncio.run(fetch_trades_concurrently(async_rest_data_client))
-    spy_october = data('SPY')(('2024-10-9', '2024-10-11'))
+    spy_october = data('SPY')(('2024-10-11', '2024-10-11'))
     spy_october_trades = spy_october(trades_concurrently(data_client))
     # sym, tf  = asyncio.run(async_rest_data_client.get_trades_async('SPY', '2024-10-11', '2024-10-11',limit=0xFFFFFFFF))
     # acquire.trades(data_client, "SPY", '2024-10-11', '2024-10-11')
     # tf = rest_data_client.get_trades('SPY','2024-10-09', '2024-10-11').df
-    print(len(spy_october_trades(0)('time')))
-    print(spy_october_trades(0)('time')[:5])
-
+    print(len(spy_october_trades[1](0)('time')))
+    print(spy_october_trades[1](0)('time')[:5])
 
 
 
