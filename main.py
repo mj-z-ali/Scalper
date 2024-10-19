@@ -226,6 +226,7 @@ def concurrently(client: AsyncRest) -> tuple[Callable,Callable]:
 
     return f_trades, f_bars
 
+
 def synchronously(client: REST) -> tuple[Callable,Callable]:
 
     f_trades = lambda symbol: lambda t_dates: (
@@ -260,36 +261,59 @@ def f_open_market_only(t_df_list: tuple[int,Callable]) -> tuple[int,Callable]:
 
 async def read_csv_concurrently(path:str):
 
-    return await asyncio.to_thread(pd.read_csv, path)
+    return await asyncio.to_thread(pd.read_csv, path, parse_dates=['timestamp'], index_col='timestamp')
 
 async def write_csv_concurrently(df: pd.DataFrame, path:str):
 
-    return await asyncio.to_thread(df.to_csv, path, index=False)
+    return await asyncio.to_thread(df.to_csv, path, index=True)
 
-async def read_create_write_optimized(t_data: tuple):
+async def rw_concurrently(tasks):
+
+    return await asyncio.gather(*tasks)
+
+def csv_optimized(t_data: tuple):
 
     try:
-        results = await asyncio.gather(*t_data[0])
-        pd.read_csv(f"{daterange[0]}-to-{daterange[1]}-{timeframe.value}-{symbol}.csv", parse_dates=['timestamp'], index_col='timestamp')
+        # read_results = await asyncio.gather(*t_data[0]())
+        # read_results = asyncio.run(asyncio.gather(*t_data[0]()))
+        read_results = asyncio.run(rw_concurrently(t_data[0]()))
 
-    except:
+        return len(read_results), lambda i: read_results[i]
 
-        results = t_data[1]()
-        data(symbol)(daterange)(bars(TimeFrame(bar_interval, bar_unit).value))(concurrently(client))
+    except Exception:
 
+        t_df_list = t_data[1]()
+        write_tasks = t_data[2](t_df_list)
+        # _ = await asyncio.gather(*write_tasks)
+        _ = asyncio.run(rw_concurrently(write_tasks))
 
-def historical_data(symbol: str) -> Callable:
+        return t_df_list
 
-    return lambda daterange: lambda f_retrieval_method: (
-        f_data:=data(symbol)(daterange),
+def read_write_create_optimized(client: AsyncRest):
 
+    return lambda symbol: lambda t_dates: lambda f_data_type: (
+        t_rwc:= f_data_type(symbol)(t_dates)(concurrently(client)),
+        csv_optimized(
+            (
+                lambda: map(lambda i: read_csv_concurrently(t_rwc[0](i)), range(t_dates[0])),
+                lambda: t_rwc[1](symbol)(t_dates),
+                lambda t_df_list: map(lambda i: write_csv_concurrently(t_df_list[1](i), t_rwc[0](i)), range(t_df_list[0]))
+            )
+        )
+    )[-1]
+
+def read_write_create_trades(symbol: str) -> Callable:
+
+    return lambda t_dates: lambda t_retrieval_method: ( 
+        lambda i: f'ticks/{t_dates[1](i)}-ticks-{symbol}.csv',
+        trades(t_retrieval_method)
     )
 
-def optimized(client: AsyncRest):
+def read_write_create_bars(timeframe: TimeFrame) -> Callable:
 
-    return lambda symbol: lambda t_dates: (
-        map(lambda i: read_csv_concurrently(f'{t_dates[1](i)}-ticks-{symbol}.csv'), range(t_dates[0])),
-        lambda: trades(concurrently(client))(symbol)(t_dates)
+    return lambda symbol: lambda t_dates: lambda t_retrieval_method: ( 
+        lambda i: f'bars/{t_dates[1](i)}-{timeframe}-{symbol}.csv',
+        bars(timeframe)(t_retrieval_method)
     )
 
 if __name__ == "__main__":
@@ -304,13 +328,21 @@ if __name__ == "__main__":
     # Fetch trades concurrently
     # tf = asyncio.run(fetch_trades_concurrently(async_rest_data_client))
     spy_october = data('SPY')(('2024-10-11', '2024-10-11'))
-    spy_october_trades = spy_october(trades(synchronously(sync_client)))
+    # spy_october_trades =  spy_october(trades(concurrently(async_client)))
+    spy_october_csv = spy_october(read_write_create_optimized(async_client))
+    # t_tf_list = spy_october_csv(read_write_create_trades)
+    # print(t_tf_list[1](0).head())
+    t_bf_list = spy_october_csv(read_write_create_bars(TimeFrame(1,TimeFrameUnit.Minute).value))
+    # print(t_tf_list[1](0).head())
+    print(t_bf_list[1](0).head())
+
+    # spy_october_trades = spy_october(trades(synchronously(sync_client)))
     # spy_october_bars = spy_october(bars(TimeFrame(1,TimeFrameUnit.Minute).value)(synchronously(sync_client)))
     # sym, tf  = asyncio.run(async_rest_data_client.get_trades_async('SPY', '2024-10-11', '2024-10-11',limit=0xFFFFFFFF))
     # acquire.trades(data_client, "SPY", '2024-10-11', '2024-10-11')
     # tf = rest_data_client.get_trades('SPY','2024-10-09', '2024-10-11').df
-    print(len(spy_october_trades[1](0)('time')))
-    print(spy_october_trades[1](0)('time')[:5])
+    # print(len(spy_october_trades[1](0)('time')))
+    # print(spy_october_trades[1](0)('time')[:5])
     # print(len(spy_october_bars[1](0)('time')))
     # print(spy_october_bars[1](0)('time')[:5])
 
