@@ -196,15 +196,15 @@ def data(symbol: str) -> Callable:
 
 def trades(t_retrieval_method:tuple[Callable,Callable]):
 
-    f_open_market = f_open_market_only(f_trade_frame)
-
-    return lambda symbol: lambda t_dates: f_open_market(t_retrieval_method[0](symbol)(t_dates))
+    return lambda symbol: lambda t_dates: f_open_market_only(t_retrieval_method[0](symbol)(t_dates))
 
 def bars(timeframe:TimeFrame) -> Callable:
 
-    f_open_market = f_open_market_only(f_bar_frame)
-
-    return lambda t_retrieval_method: lambda symbol: lambda t_dates: f_open_market(t_retrieval_method[1](timeframe)(symbol)(t_dates))
+    return lambda t_retrieval_method: lambda symbol: lambda t_dates: (
+        t_df_list := f_open_market_only(t_retrieval_method[1](timeframe)(symbol)(t_dates)),
+        results := list(map(lambda i: append_top_bottom_columns(t_df_list[1](i)), range(t_df_list[0]))),
+        (len(results), lambda i: results[i])
+    )[-1]
 
 async def async_fetch(t_task: tuple[int,Callable]) -> tuple[int,Callable] : 
 
@@ -248,14 +248,49 @@ def market_time(index_0_time: pd.Timestamp) -> tuple[datetime.time, datetime.tim
 
     return start_time.time(), end_time.time()
     
-def f_open_market_only(f_frame: Callable) -> Callable:
+def f_open_market_only(t_df_list: tuple[int,Callable]) -> tuple[int,Callable]:
 
-    return lambda t_df_list: (
-        df_range:= range(t_df_list[0]), f_df_list := t_df_list[1],
-        df_list:= [f_frame(open_market_df) for i in df_range if not f_df_list(i).empty and not (open_market_df:= f_df_list(i).between_time(*market_time(f_df_list(i).index[0]))).dropna().empty],
-        (len(df_list), lambda i: df_list[i])
-    )[-1]
+    df_list = [
+        open_market_df for i in range(t_df_list[0]) 
+        if not t_df_list[1](i).empty and not 
+        (open_market_df:= t_df_list[1](i).between_time(*market_time(t_df_list[1](i).index[0]))).dropna().empty
+    ]
 
+    return len(df_list), lambda i: df_list[i]
+
+async def read_csv_concurrently(path:str):
+
+    return await asyncio.to_thread(pd.read_csv, path)
+
+async def write_csv_concurrently(df: pd.DataFrame, path:str):
+
+    return await asyncio.to_thread(df.to_csv, path, index=False)
+
+async def read_create_write_optimized(t_data: tuple):
+
+    try:
+        results = await asyncio.gather(*t_data[0])
+        pd.read_csv(f"{daterange[0]}-to-{daterange[1]}-{timeframe.value}-{symbol}.csv", parse_dates=['timestamp'], index_col='timestamp')
+
+    except:
+
+        results = t_data[1]()
+        data(symbol)(daterange)(bars(TimeFrame(bar_interval, bar_unit).value))(concurrently(client))
+
+
+def historical_data(symbol: str) -> Callable:
+
+    return lambda daterange: lambda f_retrieval_method: (
+        f_data:=data(symbol)(daterange),
+
+    )
+
+def optimized(client: AsyncRest):
+
+    return lambda symbol: lambda t_dates: (
+        map(lambda i: read_csv_concurrently(f'{t_dates[1](i)}-ticks-{symbol}.csv'), range(t_dates[0])),
+        lambda: trades(concurrently(client))(symbol)(t_dates)
+    )
 
 if __name__ == "__main__":
     # main()
