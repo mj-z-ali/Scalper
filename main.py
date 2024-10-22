@@ -252,40 +252,64 @@ def read_write_create(client: REST) -> tuple[int,Callable]:
         merge_df_list((0,0,t_partial_df_list,t_remaining_df_list))
     )[-1]
 
+def pca(X: NDArray[np.float64], n_components: np.uint64) -> NDArray[np.float64]:
+    # from sklearn.decomposition import PCA
+    # pca_=PCA(n_components=n_components)
+    # return pca_.fit_transform(X)
+    '''
+    Perform PCA on the dataset X and reduce it to n_components dimensions.
+
+    Parameters:
+    * X, NDArray(n,d) of n samples and d features.
+    * n_components, an integer denoting number of principle
+    components to retain.
+
+    Output:
+    X_pca, NDArray(n, n_components), the transformed data with n samples
+    and n_components features.
+    '''
+
+    X_meaned = X - np.mean(X, axis=0)
+
+    cov_matrix = np.cov(X_meaned, rowvar=False)
+
+    eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+
+    eigenvector_subset = eigenvectors[:, -n_components:]
+
+    X_pca = eigenvector_subset.transpose() @ X_meaned.transpose()
+
+    return X_pca.transpose()
+
 if __name__ == "__main__":
-    # main()
-    # data_client = client.establish_client(client.init(paper=True))
+   
     client = Client.initialize(paper=True)
     sync_client = client('trade')
     async_client = client('data')
 
     print('Getting Trades')
 
-    # Fetch trades concurrently
-    # tf = asyncio.run(fetch_trades_concurrently(async_rest_data_client))
-    spy_october = data('SPY')(('2024-09-01', '2024-09-30'))
-    # spy_october_trades =  spy_october(trades(concurrently(async_client)))
-    spy_october_csv = spy_october(read_write_create_optimized(async_client))
-    # t_tf_list = spy_october_csv(read_write_create_trades)
-    # print(t_tf_list[1](0).head())
-    t_bf_list = spy_october_csv(read_write_create_trades)
-    t_bf_list = spy_october_csv(read_write_create_bars(TimeFrame(5,TimeFrameUnit.Minute).value))
-    # print(t_tf_list[1](0).head())
-    # print(t_bf_list[1](0).head())
+    start_date = '2024-10-11'
+    end_date = '2024-10-18'
 
-    # spy_october_trades = spy_october(trades(synchronously(sync_client)))
-    # spy_october_bars = spy_october(bars(TimeFrame(1,TimeFrameUnit.Minute).value)(synchronously(sync_client)))
-    # sym, tf  = asyncio.run(async_rest_data_client.get_trades_async('SPY', '2024-10-11', '2024-10-11',limit=0xFFFFFFFF))
-    # acquire.trades(data_client, "SPY", '2024-10-11', '2024-10-11')
-    # tf = rest_data_client.get_trades('SPY','2024-10-09', '2024-10-11').df
-    # print(len(spy_october_trades[1](0)('time')))
-    # print(spy_october_trades[1](0)('time')[:5])
-    # print(len(spy_october_bars[1](0)('time')))
-    # print(spy_october_bars[1](0)('time')[:5])
+    spy_october = data('SPY')((start_date, end_date))
+    spy_october_csv_optimized = spy_october(read_write_create_optimized(async_client))
+  
+    t_spy_oct_tf_list = spy_october_csv_optimized(read_write_create_trades)
+    t_spy_oct_bf_list = spy_october_csv_optimized(read_write_create_bars(TimeFrame(5,TimeFrameUnit.Minute).value))
 
+    print(t_spy_oct_tf_list[0])
+    print(t_spy_oct_bf_list[0])
 
+    args = lambda i: (k_rmsd(2), acceleration(f_trade_frame(t_spy_oct_tf_list[1](i))), first_upper_parabolic_area_enclosed(), second_upper_parabolic_area_enclosed(), first_lower_parabolic_area_enclosed(), second_lower_parabolic_area_enclosed(), cubic_area_enclosed(), first_euclidean_distance(), second_euclidean_distance(), first_slope(), second_slope(), first_percentage_diff(), second_percentage_diff())
+    resistance_data_list = list(map(lambda i: resistance_data(i, 3, f_bar_frame(t_spy_oct_bf_list[1](i)), *args(i)), range(t_spy_oct_bf_list[0])))
 
+    combined_resistance_data = np.row_stack(resistance_data_list)
 
+    pca_resistance_data = pca(combined_resistance_data[:,1:], 2)
+
+    print(pca_resistance_data.shape)
+    print(pca_resistance_data)
 '''
 Observation:
 
