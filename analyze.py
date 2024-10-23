@@ -229,7 +229,10 @@ def build_resistance_data(f_vd: Callable, f_pd: Callable, f_op: Callable, data: 
     
     f_px, f_py = f_pd(f_vd)
 
-    new_data = np.concatenate((data, f_op(parameter(f_px, f_py), f_vd('i_x').shape[0])))
+    new_data = np.column_stack((
+        f_py('i_y'), f_px('lb_x'), f_px('r_x'),
+        np.concatenate((data, f_op(parameter(f_px, f_py), f_vd('i_x').shape[0])))
+    ))
 
     return build_resistance_data(next_validated_data(f_vd, variable_data(f_vd)), f_pd, f_op, new_data)
 
@@ -244,15 +247,15 @@ def f_vt(f_tf: Callable, g: Callable, r: range):
     # First breakout trade indices
     bt_x = first_points((f_tf('time') >= g('start_time_y')[:,None]) & (f_tf('time') < g('end_time_y')[:,None]) & (f_tf('price') > g('i_y')[:,None]))
     
-    si = reduce(lambda acc, x: acc + [acc[0] - np.timedelta64(x,'s')], r, [f_tf('time')[bt_x]])
-
+    si = reduce(lambda acc, x: [acc[-1] - np.timedelta64(x+1,'s')] + acc, r, [f_tf('time')[bt_x]])
+    print(si)
     return lambda f_vy: poly.fit_polynomial(np.array([[0,1,2]]*len(g('i_y'))), f_vy(si), 2)
 
 def volume_time(f_tf: Callable, g: Callable, r: range):
 
-    f_vi = lambda si, i: np.sum(((f_tf('time') >= si[i][:,None]) & (f_tf('time') < si[i-1][:,None])) * f_tf('size'), axis=1)
+    f_vi = lambda si, i: np.sum(((f_tf('time') >= si[i][:,None]) & (f_tf('time') < si[i+1][:,None])) * f_tf('size'), axis=1)
     
-    f_vy = lambda si: np.column_stack((list(map(lambda i: f_vi(si, i), r))))
+    f_vy = lambda si: (l:=np.column_stack((list(map(lambda i: f_vi(si, i), r)))), print(l))[-2]
 
     return f_vt(f_tf, g, r)(f_vy)
 
@@ -260,7 +263,7 @@ def acceleration(f_tf: Callable) -> Callable:
 
     f_ddvt = lambda vt: vt[:, 2]*2
 
-    f_a = lambda g: f_ddvt(volume_time(f_tf, g, range(3,0,-1)))
+    f_a = lambda g: f_ddvt(volume_time(f_tf, g, range(0,3)))
 
     return lambda f: f('y_parameter_package')(f_a)
 
