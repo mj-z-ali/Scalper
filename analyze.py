@@ -31,9 +31,9 @@ def diff_matrix(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.fl
 def relational_matrices(f: Callable) -> Callable:
 
     data = {
-        'q_t': diff_matrix(f('top_p'), f('top_p')),
-        'q_b': diff_matrix(f('top_p'), f('bottom_p')),
-        'q_h': diff_matrix(f('top_p'), f('high_p'))
+        'q_t': diff_matrix(f('top_p'),f('top_p')),
+        'q_b': diff_matrix(f('bottom_p'),f('top_p')),
+        'q_h': diff_matrix(f('high_p'),f('top_p'))
     }
 
     return lambda s: data[s]
@@ -59,7 +59,9 @@ def points(f: Callable, g: Callable) -> Callable:
         'r_x': right_points(f('r_mask')),
         'i_x': g('range_x')
     }
-    
+    print(f"first r_x \n {data['r_x']}")
+    print(f"first rb_x \n {data['rb_x']}")
+
     return lambda s: data[s]
 
 
@@ -77,6 +79,9 @@ def initial_validated_data(c: np.uint64, p: Callable, q: Callable, r: Callable) 
         'q_b': q('q_b')[vld],
         'r_mask': r('r_mask')[vld]
     }
+
+    print(f"ivd r_x \n {data['r_x']}")
+    print(f"ivd rb_x \n {data['rb_x']}")
 
     return lambda s: data[s]
 
@@ -96,14 +101,15 @@ def next_validated_data(f: Callable, g: Callable) -> Callable:
         'q_b': f('q_b')[vld],
         'r_mask': g('r_mask')[vld]
     }
-
+    print(f"nvd r_x \n {data['r_x']}")
+    print(f"nvd rb_x \n {data['rb_x']}")
     return lambda s: data[s]
 
 
 def variable_data(f: Callable) -> Callable:
 
     r_mask = f('r_mask') & (f('columns') != f('r_x')[:,None])
-
+    print(f'rmask \n {r_mask}')
     data = {
         'r_x': right_points(r_mask),
         'r_mask': r_mask
@@ -115,7 +121,7 @@ def variable_data(f: Callable) -> Callable:
 def boundary_mask(f: Callable) -> Callable:
 
     b_mask = (f('columns') <= f('lb_x')[:,None]) | (f('columns') >= f('r_x')[:,None])
-
+    print(f"boundary mask  r_x \n {f('r_x')}")
     data = {
         'b_mask': b_mask,
         'bi_mask': b_mask | (f('columns') == f('i_x')[:,None]),
@@ -228,19 +234,23 @@ def build_resistance_data(f_vd: Callable, f_pd: Callable, f_op: Callable, data: 
 
     if f_vd('empty'):
         return data
-    
-    f_px, f_py = f_pd(f_vd)
+    print(f"in build data r_x\n {f_vd('r_x')}")
+    print(f"in build data rb_x\n {f_vd('rb_x')}")
 
-    new_data = np.column_stack((
-        f_py('i_y'), f_px('lb_x'), f_px('r_x'),
-        np.concatenate((data, f_op(parameter(f_px, f_py), f_vd('i_x').shape[0])))
+    f_px, f_py = f_pd(f_vd)
+    print(f"px r_x\n {f_px('r_x')}")
+
+    new_data = np.concatenate((
+        data, 
+        np.column_stack((f_py('i_y'), f_px('lb_x'), f_px('r_x'), f_op(parameter(f_px, f_py), f_vd('i_x').shape[0])))
     ))
+    print(f"data\n{new_data}")
 
     return build_resistance_data(next_validated_data(f_vd, variable_data(f_vd)), f_pd, f_op, new_data)
 
 def resistance_data(day: np.uint64, min_line_width: np.uint64, f_bf: Callable, *args: Callable):
 
-    data = build_resistance_data(init_validated_data(min_line_width, f_bf), preliminary_data(f_bf), operations(args), np.empty((0, len(args))))
+    data = build_resistance_data(init_validated_data(min_line_width, f_bf), preliminary_data(f_bf), operations(args), np.empty((0, 3+len(args))))
 
     return np.column_stack((np.array([day]*data.shape[0]), data))
 
