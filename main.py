@@ -4,8 +4,8 @@ from typing import Callable
 from numpy.typing import NDArray
 import client as Client
 import acquire
-from analyze import resistance_data, k_rmsd, acceleration, first_upper_parabolic_area_enclosed, second_upper_parabolic_area_enclosed, first_lower_parabolic_area_enclosed, second_lower_parabolic_area_enclosed, cubic_area_enclosed, first_euclidean_distance, second_euclidean_distance, first_slope, second_slope, first_percentage_diff, second_percentage_diff
-import k_means as km
+from analyze import resistance_data, first_volume, second_volume, pillar_volume, k_rmsd, acceleration, first_upper_parabolic_area_enclosed, second_upper_parabolic_area_enclosed, first_lower_parabolic_area_enclosed, second_lower_parabolic_area_enclosed, cubic_area_enclosed, first_euclidean_distance, second_euclidean_distance, first_slope, second_slope, first_percentage_diff, second_percentage_diff
+import kmm
 import plt
 from alpaca_trade_api.rest import REST, TimeFrame, TimeFrameUnit
 from alpaca_trade_api.rest_async import AsyncRest
@@ -69,8 +69,8 @@ def f_bar_frame(df: pd.DataFrame) -> Callable:
         'range_x': np.arange(len(df)-1),
         'top_p': df['top'].values[:-1],
         'bottom_p': df['bottom'].values[:-1],
-        'high_p': df['high'].values[:-1]
-        
+        'high_p': df['high'].values[:-1],
+        'volume': df['volume'].values[:-1]
     }
 
     return lambda s: data[s]
@@ -301,15 +301,39 @@ if __name__ == "__main__":
     print(t_spy_oct_tf_list[0])
     print(t_spy_oct_bf_list[0])
 
-    args = lambda i: (k_rmsd(2), acceleration(f_trade_frame(t_spy_oct_tf_list[1](i))), first_upper_parabolic_area_enclosed(), second_upper_parabolic_area_enclosed(), first_lower_parabolic_area_enclosed(), second_lower_parabolic_area_enclosed(), cubic_area_enclosed(), first_euclidean_distance(), second_euclidean_distance(), first_slope(), second_slope(), first_percentage_diff(), second_percentage_diff())
+    # k_rmsd(2), acceleration(f_trade_frame(t_spy_oct_tf_list[1](i))), first_upper_parabolic_area_enclosed(), second_upper_parabolic_area_enclosed(), first_lower_parabolic_area_enclosed(), second_lower_parabolic_area_enclosed(), cubic_area_enclosed(), first_euclidean_distance(), second_euclidean_distance(), first_slope(), second_slope(), first_percentage_diff(), second_percentage_diff()
+    args = lambda i: (first_percentage_diff(), first_percentage_diff())
+    # 'k_rmsd(2)', 'acceleration', 'first_upper_parabolic_area_enclosed', 'second_upper_parabolic_area_enclosed', 'first_lower_parabolic_area_enclosed', 'second_lower_parabolic_area_enclosed', 'cubic_area_enclosed', 'first_euclidean_distance', 'second_euclidean_distance', 'first_slope', 'second_slope', 'first_percentage_diff', 'second_percentage_diff'
+    arg_names = ['first_percentage_diff', 'first_percentage_diff']
+    
     resistance_data_list = list(map(lambda i: resistance_data(i, 3, f_bar_frame(t_spy_oct_bf_list[1](i)), *args(i)), range(t_spy_oct_bf_list[0])))
 
     combined_resistance_data = np.row_stack(resistance_data_list)
 
-    pca_resistance_data = pca(combined_resistance_data[:,1:], 2)
+    # pca_resistance_data = pca(combined_resistance_data[:,4:], 2)
+    pca_resistance_data = combined_resistance_data[:,4:]
 
-    print(pca_resistance_data.shape)
-    print(pca_resistance_data)
+
+    centroids,labels = kmm.train(pca_resistance_data, 3, 0, 1000)
+
+    print(labels.shape)
+    print(labels)
+
+    resistance_data_lens = [data.shape[0] for data in resistance_data_list]
+    data_label_indices = np.append(0,np.cumsum(resistance_data_lens))
+    print(data_label_indices)
+    cluster_1_each_day = [labels[start:end]==2 for start,end in zip(data_label_indices,data_label_indices[1:])]
+
+    t_resistance_data_list  = len(resistance_data_list), lambda i: resistance_data_list[i][cluster_1_each_day[i]]
+    
+    kmm.plot_clusters(pca_resistance_data, centroids, labels)
+    plt.plot_resistances(t_spy_oct_bf_list, t_resistance_data_list, arg_names)
+
+    
+
+
+
+
 '''
 Observation:
 

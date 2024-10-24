@@ -152,7 +152,9 @@ def preliminary_data_y(f: Callable, g: Callable) -> Callable:
         'lv_y_1': f('bottom_p')[g('lv_x_1')],
         'i_y': f('top_p')[g('i_x')],
         'start_time_y': f('time')[g('r_x')],
-        'end_time_y': f('time')[g('r_x')+1]
+        'end_time_y': f('time')[g('r_x')+1],
+        'volume_0': f('volume')[g('i_x')],
+        'volume_1': f('volume')[g('uv_x_0')]
     }
 
     return lambda s: data[s]
@@ -249,23 +251,41 @@ def f_vt(f_tf: Callable, g: Callable, r: range):
     
     si = reduce(lambda acc, x: [acc[-1] - np.timedelta64(x+1,'s')] + acc, r, [f_tf('time')[bt_x]])
     print(si)
-    return lambda f_vy: poly.fit_polynomial(np.array([[0,1,2]]*len(g('i_y'))), f_vy(si), 2)
+    return lambda f_vy: poly.fit_polynomial(np.array([r]*len(g('i_y'))), f_vy(si), len(r)-1)
 
-def volume_time(f_tf: Callable, g: Callable, r: range):
+def volume_time(f_tf: Callable, g: Callable, r: list):
 
     f_vi = lambda si, i: np.sum(((f_tf('time') >= si[i][:,None]) & (f_tf('time') < si[i+1][:,None])) * f_tf('size'), axis=1)
     
-    f_vy = lambda si: (l:=np.column_stack((list(map(lambda i: f_vi(si, i), r)))), print(l))[-2]
+    f_vy = lambda si: np.column_stack((list(map(lambda i: f_vi(si, i), r))))
 
     return f_vt(f_tf, g, r)(f_vy)
 
-def acceleration(f_tf: Callable) -> Callable:
+def acceleration(f_tf: Callable, r: np.uint64) -> Callable:
 
     f_ddvt = lambda vt: vt[:, 2]*2
 
-    f_a = lambda g: f_ddvt(volume_time(f_tf, g, range(0,3)))
+    f_a = lambda g: f_ddvt(volume_time(f_tf, g, list(range(0,r))))
 
     return lambda f: f('y_parameter_package')(f_a)
+
+def first_volume() -> Callable:
+
+    f_v = lambda g: g('volume_0')
+
+    return lambda f: f('y_parameter_package')(f_v)
+
+def second_volume() -> Callable:
+
+    f_v = lambda g: g('volume_1')
+
+    return lambda f: f('y_parameter_package')(f_v)
+
+def pillar_volume() -> Callable:
+
+    f_v = lambda g: (g('volume_0') + g('volume_1'))/2
+
+    return lambda f: f('y_parameter_package')(f_v)
 
 def k_rmsd(k: np.float64) -> Callable:
 
