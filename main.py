@@ -4,7 +4,7 @@ from typing import Callable
 from numpy.typing import NDArray
 import client as Client
 import acquire
-from analyze import resistance_data, first_volume, second_volume, pillar_volume, k_rmsd, acceleration, first_upper_parabolic_area_enclosed, second_upper_parabolic_area_enclosed, first_lower_parabolic_area_enclosed, second_lower_parabolic_area_enclosed, cubic_area_enclosed, first_euclidean_distance, second_euclidean_distance, first_slope, second_slope, first_percentage_diff, second_percentage_diff
+from analyze import resistance_data, first_breakout_index, first_volume, second_volume, pillar_volume, k_rmsd, acceleration, first_upper_parabolic_area_enclosed, second_upper_parabolic_area_enclosed, first_lower_parabolic_area_enclosed, second_lower_parabolic_area_enclosed, cubic_area_enclosed, first_euclidean_distance, second_euclidean_distance, first_slope, second_slope, first_percentage_diff, second_percentage_diff
 import kmm
 import plt
 from alpaca_trade_api.rest import REST, TimeFrame, TimeFrameUnit
@@ -281,6 +281,103 @@ def pca(X: NDArray[np.float64], n_components: np.uint64) -> NDArray[np.float64]:
 
     return X_pca.transpose()
 
+def break_peak_index(bt_i: NDArray[np.uint64], t_tf_list: tuple[int, Callable], day: np.uint64) -> NDArray[np.uint64]:
+
+    # bt_i: first breakout trade tf-index for each resistance line of day i.
+        
+    # Check if next trade exists
+    bn_i = (bt_i + 1) < len(t_spy_oct_tf_list[1](day))
+
+    bt_y = t_spy_oct_tf_list[1](day)['price'].values[bt_i] # first breakout trade price for each resistance line of day i.
+    bn_y = t_spy_oct_tf_list[1](day)['price'].values[bt_i+bn_i]
+
+    increment = ((bn_i)&(bt_y <= bn_y))
+
+    if np.all(~increment):
+        return bt_i
+    
+    return break_peak_index(bt_i + increment, t_tf_list, day)
+
+def break_data(i_y, l_x, r_x, res_data, bt_i, tf, day, r):
+    print(len(res_data))
+    print(f"day, resistance ({day,r})")
+    data =  np.empty((0,6+len(res_data)))
+    print(type(bt_i))
+    print(tf['price'].values.shape)
+    bh_y = tf['price'].values[bt_i]
+    bh_i = bt_i
+
+    prev_bl_i = 0
+
+    while(True):
+
+        for i in range(bh_i+1, len(tf)):
+            new_bh_y = tf['price'].values[i]
+            if new_bh_y >= bh_y:
+                bh_y = new_bh_y
+                bh_i = i
+            else:
+                break
+        
+        if prev_bl_i < bh_i:
+
+            bl_y = len(tf)
+            bl_i = len(tf)
+            if (bh_i+1)  <  len(tf):
+                bl_y = tf['price'].values[bh_i+1]
+                bl_i = bh_i+1
+
+            for i in range(bl_i+1, len(tf)):
+                new_bl_y = tf['price'].values[i]
+                if new_bl_y <= bl_y:
+                    bl_y = new_bl_y
+                    bl_i = i
+                else:
+                    break
+
+        h_y = len(tf)
+        h_i = len(tf)
+        if (bl_i+1) < len(tf):
+            h_y = tf['price'].values[bl_i+1]
+            h_i = bl_i+1
+
+        for i in range(h_i+1, len(tf)):
+            new_h_y = tf['price'].values[i]
+            if new_h_y >= h_y:
+                h_y = new_h_y
+                h_i = i
+            elif new_h_y < bl_y:
+                break
+        
+        if (bl_y==len(tf)) or (h_y==len(tf)):
+            break
+        
+        bh_resistance_diff = 100*(bh_y - i_y)/i_y
+        bl_resistance_diff = 100*(bl_y - i_y)/i_y
+        h_bl_diff = 100*(h_y - bl_y)/bl_y
+        data = np.row_stack((data, np.append(np.array([bh_resistance_diff, bl_resistance_diff, h_bl_diff, i_y, l_x, r_x]), res_data)))
+
+        prev_bh_i = bh_i
+        prev_bl_i = bl_i
+        for i in range(bl_i+1, len(tf)):
+            y = tf['price'].values[i]
+
+            if y > bh_y:
+                bh_y = y
+                bh_i = i
+                break
+            elif y < bl_y:
+                bl_y = y
+                bl_i = i
+                break
+
+        if (prev_bh_i==bh_i) and (prev_bl_i==bl_i):
+            break
+        else:
+            prev_bl_i = bl_i
+        
+    return data
+
 if __name__ == "__main__":
    
     client = Client.initialize(paper=True)
@@ -289,8 +386,8 @@ if __name__ == "__main__":
 
     print('Getting Trades')
 
-    start_date = '2024-10-11'
-    end_date = '2024-10-18'
+    start_date = '2024-10-07'
+    end_date = '2024-10-11'
 
     spy_october = data('SPY')((start_date, end_date))
     spy_october_csv_optimized = spy_october(read_write_create_optimized(async_client))
@@ -298,38 +395,60 @@ if __name__ == "__main__":
     t_spy_oct_tf_list = spy_october_csv_optimized(read_write_create_trades)
     t_spy_oct_bf_list = spy_october_csv_optimized(read_write_create_bars(TimeFrame(5,TimeFrameUnit.Minute).value))
 
-    print(t_spy_oct_tf_list[0])
-    print(t_spy_oct_bf_list[0])
 
     # k_rmsd(2), acceleration(f_trade_frame(t_spy_oct_tf_list[1](i))), first_upper_parabolic_area_enclosed(), second_upper_parabolic_area_enclosed(), first_lower_parabolic_area_enclosed(), second_lower_parabolic_area_enclosed(), cubic_area_enclosed(), first_euclidean_distance(), second_euclidean_distance(), first_slope(), second_slope(), first_percentage_diff(), second_percentage_diff()
-    args = lambda i: (first_percentage_diff(), first_percentage_diff())
+    args = lambda i: (pillar_volume(), acceleration(f_trade_frame(t_spy_oct_tf_list[1](i)),3), first_percentage_diff(), first_breakout_index(f_trade_frame(t_spy_oct_tf_list[1](i))))
     # 'k_rmsd(2)', 'acceleration', 'first_upper_parabolic_area_enclosed', 'second_upper_parabolic_area_enclosed', 'first_lower_parabolic_area_enclosed', 'second_lower_parabolic_area_enclosed', 'cubic_area_enclosed', 'first_euclidean_distance', 'second_euclidean_distance', 'first_slope', 'second_slope', 'first_percentage_diff', 'second_percentage_diff'
-    arg_names = ['first_percentage_diff', 'first_percentage_diff']
+    arg_names = ['pillar_volume', 'acceleration', 'first_percentage_diff', 'first_breakout_index']
     
     resistance_data_list = list(map(lambda i: resistance_data(i, 3, f_bar_frame(t_spy_oct_bf_list[1](i)), *args(i)), range(t_spy_oct_bf_list[0])))
 
+    print(f"resistance data list length {len(resistance_data_list)}")
+    print(f"# resistances on first day {resistance_data_list[0].shape}")
     combined_resistance_data = np.row_stack(resistance_data_list)
 
+    perc_diff = np.column_stack((combined_resistance_data[:,6],combined_resistance_data[:,6]))
     # pca_resistance_data = pca(combined_resistance_data[:,4:], 2)
-    pca_resistance_data = combined_resistance_data[:,4:]
+    pillarxaccel = np.column_stack((combined_resistance_data[:,4]*combined_resistance_data[:,5],combined_resistance_data[:,4]*combined_resistance_data[:,5]))
 
 
-    centroids,labels = kmm.train(pca_resistance_data, 3, 0, 1000)
-
-    print(labels.shape)
-    print(labels)
+    centroids_perc, labels_perc = kmm.train(perc_diff, 10, 0, 1000)
+    centroids_pxa,labels_pxa = kmm.train(pillarxaccel, 10, 0, 1000)
 
     resistance_data_lens = [data.shape[0] for data in resistance_data_list]
     data_label_indices = np.append(0,np.cumsum(resistance_data_lens))
-    print(data_label_indices)
-    cluster_1_each_day = [labels[start:end]==2 for start,end in zip(data_label_indices,data_label_indices[1:])]
-
-    t_resistance_data_list  = len(resistance_data_list), lambda i: resistance_data_list[i][cluster_1_each_day[i]]
     
-    kmm.plot_clusters(pca_resistance_data, centroids, labels)
-    plt.plot_resistances(t_spy_oct_bf_list, t_resistance_data_list, arg_names)
+
+    # clusters= [(((labels_perc[start:end]==3)|(labels_perc[start:end]==7)) & ((labels_pxa[start:end]==1)|(labels_pxa[start:end]==3)|(labels_pxa[start:end]==6)|(labels_pxa[start:end]==8))) for start,end in zip(data_label_indices,data_label_indices[1:])]
+    clusters= [((labels_perc[start:end]==2) & ((labels_pxa[start:end]==3)|(labels_pxa[start:end]==2)|(labels_pxa[start:end]==9)|(labels_pxa[start:end]==5)|(labels_pxa[start:end]==7))) for start,end in zip(data_label_indices,data_label_indices[1:])]
+
+
+    t_resistance_data_list  = len(resistance_data_list), lambda i: resistance_data_list[i][clusters[i]]
+
+    break_data_list = list(map(lambda day: np.row_stack(list(map(lambda t_r: break_data(t_r[1][1], t_r[1][2], t_r[1][3], t_r[1][4:], int(t_r[1][-1]), t_spy_oct_tf_list[1](day), day, t_r[0]),enumerate(t_resistance_data_list[1](day))))),range(t_resistance_data_list[0])))
+    
+    combined_break_data = np.row_stack(break_data_list)
+
+    break_data_lens = [data.shape[0] for data in break_data_list]
+
+    break_data_label_indices = np.append(0,np.cumsum(break_data_lens))
+
+    # break_peak_diffs = np.column_stack((combined_break_data[:,0],combined_break_data[:,1]))
+
+    centroids_brk, labels_brk = kmm.train(combined_break_data[:,:3], 10,0,1000)
+
+    clusters_brk = [labels_brk[start:end]==9  for start,end in zip(break_data_label_indices, break_data_label_indices[1:])]
+    
+    t_resistance_data_list_brk = len(resistance_data_list), lambda i: break_data_list[i][clusters_brk[i]]
+    # i_y = resistance_data_list[i][:,1] # resistance price for each resistance line of day i.s
+
+        
+    
+    # kmm.plot_clusters(pillarxaccel, centroids_pxa, labels_pxa)
+    plt.plot_resistances(t_spy_oct_bf_list, t_resistance_data_list_brk, arg_names)
 
     
+
 
 
 
