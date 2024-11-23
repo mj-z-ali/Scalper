@@ -160,7 +160,9 @@ def preliminary_data_y(f: Callable, g: Callable) -> Callable:
         'start_time_y': f('time')[g('r_x')],
         'end_time_y': f('time')[g('r_x')+1],
         'volume_0': f('volume')[g('i_x')],
-        'volume_1': f('volume')[g('uv_x_0')]
+        'volume_1': f('volume')[g('uv_x_0')],
+        'height_0': 100*(f('top_p')[g('i_x')] - f('bottom_p')[g('i_x')])/f('top_p')[g('i_x')],
+        'height_1': 100*(f('top_p')[g('uv_x_0')] - f('bottom_p')[g('uv_x_0')])/f('top_p')[g('uv_x_0')]
     }
 
     return lambda s: data[s]
@@ -242,7 +244,9 @@ def build_resistance_data(f_vd: Callable, f_pd: Callable, f_op: Callable, data: 
 
     new_data = np.concatenate((
         data, 
-        np.column_stack((f_py('i_y'), f_px('lb_x'), f_px('r_x'), f_op(parameter(f_px, f_py), f_vd('i_x').shape[0])))
+        np.column_stack((f_py('i_y'), f_px('lb_x'), f_px('r_x'), 
+                        f_op(parameter(f_px, f_py), f_vd('i_x').shape[0])
+        ))
     ))
     print(f"data\n{new_data}")
 
@@ -254,16 +258,24 @@ def resistance_data(day: np.uint64, min_line_width: np.uint64, f_bf: Callable, *
 
     return np.column_stack((np.array([day]*data.shape[0]), data))
 
-def f_vt(f_tf: Callable, g: Callable, r: range):
+def breakout_trade(f_tf: Callable, g: Callable) -> NDArray[np.uint64]:
+
+    return first_points(
+        (f_tf('time') >= g('start_time_y')[:,None]) & 
+        (f_tf('time') < g('end_time_y')[:,None]) & 
+        (f_tf('price') > g('i_y')[:,None])
+    )
+
+def f_vt(f_tf: Callable, g: Callable, r: range) -> Callable:
 
     # First breakout trade indices
-    bt_x = first_points((f_tf('time') >= g('start_time_y')[:,None]) & (f_tf('time') < g('end_time_y')[:,None]) & (f_tf('price') > g('i_y')[:,None]))
+    bt_x = breakout_trade(f_tf, g)
     
     si = reduce(lambda acc, x: [acc[-1] - np.timedelta64(x+1,'s')] + acc, r, [f_tf('time')[bt_x]])
     print(si)
     return lambda f_vy: poly.fit_polynomial(np.array([r]*len(g('i_y'))), f_vy(si), len(r)-1)
 
-def volume_time(f_tf: Callable, g: Callable, r: list):
+def volume_per_time(f_tf: Callable, g: Callable, r: list):
 
     f_vi = lambda si, i: np.sum(((f_tf('time') >= si[i][:,None]) & (f_tf('time') < si[i+1][:,None])) * f_tf('size'), axis=1)
     
@@ -275,9 +287,15 @@ def acceleration(f_tf: Callable, r: np.uint64) -> Callable:
 
     f_ddvt = lambda vt: vt[:, 2]*2
 
-    f_a = lambda g: f_ddvt(volume_time(f_tf, g, list(range(0,r))))
+    f_a = lambda g: f_ddvt(volume_per_time(f_tf, g, list(range(0,r))))
 
     return lambda f: f('y_parameter_package')(f_a)
+
+def first_breakout_index(f_tf: Callable) -> Callable:
+
+    f_bi = lambda g: breakout_trade(f_tf, g)
+
+    return lambda f: f('y_parameter_package')(f_bi)
 
 def first_volume() -> Callable:
 
@@ -296,6 +314,11 @@ def pillar_volume() -> Callable:
     f_v = lambda g: (g('volume_0') + g('volume_1'))/2
 
     return lambda f: f('y_parameter_package')(f_v)
+
+def pillar_height() -> Callable:
+    f_h = lambda g: (g('height_0') + g('height_1'))/2
+
+    return lambda f: f('y_parameter_package')(f_h)
 
 def k_rmsd(k: np.float64) -> Callable:
 
