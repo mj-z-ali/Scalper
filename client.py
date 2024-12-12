@@ -1,8 +1,10 @@
 import os
-from alpaca_trade_api.rest import REST
-from  alpaca_trade_api.rest_async import AsyncRest
-from alpaca_trade_api.stream import Stream
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.live import CryptoDataStream, StockDataStream
+from alpaca.data.enums import CryptoFeed, DataFeed
+from alpaca.trading.client import TradingClient
 from typing import Callable
+
 
 
 # Alpaca API client setup for trading, streaming, and historical data.
@@ -11,12 +13,12 @@ def initialize(paper: bool) -> Callable:
 
     key_id = os.getenv('ALPACA_API_KEY') if paper else os.getenv('ALPACA_API_KEY_LIVE')
     secret_key = os.getenv('ALPACA_SECRET_KEY') if paper else os.getenv('ALPACA_SECRET_KEY_LIVE')
-    base_url = 'https://paper-api.alpaca.markets' if paper else 'https://api.alpaca.markets'
-   
+
     clients = {
-        'trade': lambda: REST(key_id, secret_key, base_url, 'v2' ),
-        'data': lambda: AsyncRest(key_id, secret_key,'https://data.alpaca.markets', 'v2'),
-        'stream': lambda: Stream(key_id, secret_key, base_url, 'https://stream.data.alpaca.markets', 'sip')
+        'stock_data': lambda: StockHistoricalDataClient(key_id, secret_key),
+        'trade': lambda: TradingClient(api_key=key_id, secret_key=secret_key, paper=paper),
+        'stock_stream': lambda: StockDataStream(api_key=key_id, secret_key=secret_key, feed=DataFeed.IEX),
+        'crypto_stream': lambda: CryptoDataStream(api_key=key_id, secret_key=secret_key, feed=CryptoFeed.US)
     }
 
     return lambda client_str: clients[client_str]()
