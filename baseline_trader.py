@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from typing import Callable
 from numpy.typing import NDArray
 from alpaca.data.models import Bar, Trade
-from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, StopOrderRequest
-from alpaca.trading.enums import OrderSide, OrderType, OrderClass, TimeInForce, TradeEvent
+from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, StopOrderRequest, GetOrdersRequest
+from alpaca.trading.enums import OrderSide, OrderType, OrderClass, TimeInForce, TradeEvent, QueryOrderStatus
 from alpaca.trading.models import TradeUpdate
+from alpaca.trading.client import TradingClient
+import threading
 
 
 @dataclass(frozen=True)
@@ -38,8 +40,9 @@ class Lock_State:
 
 @dataclass(frozen=True)
 class Order_State:
-    _position_counts: list=[0]*10
-    _prices: list=[0.0]*10
+    _position_counts: tuple[int, ...]=(0,)*10
+    _unique_ids: tuple[int, ...]=(0,)*10
+    _prices: tuple[int, ...]=(0.0,)*10
 
 def diff_matrix(a: NDArray[np.float64]) -> NDArray[np.float64]:
     return lambda b: a - b.reshape(-1,1)
@@ -155,6 +158,23 @@ def generate_call_stop_sell(symbol: str) -> Callable:
     )
 
 
+def streams(client:Client) -> Callable:
+
+    async def stock_data(t_handlers: tuple[Callable,Callable]) -> None:
+        stock_stream_client = client('crypto_stream')
+        stock_stream_client.subscribe_bars(t_handlers[0],'BTC/USD')
+        stock_stream_client.subscribe_trades(t_handlers[1],'BTC/USD')
+        await stock_stream_client.run()
+
+    async def trade_update(handler:Callable) -> None:
+        trade_stream_client = client('trade_stream')
+        trade_stream_client.subscribe_trade_updates(handler)
+        await trade_stream_client.run()
+    
+    async def run(t_handlers: tuple[Callable, Callable, Callable]) -> None:
+        await asyncio.gather(stock_data(t_handlers[:-1]), trade_update(t_handlers[-1]))
+    return run
+
 def main():
 
     client = Client.initialize(paper=True)
@@ -203,22 +223,23 @@ def main():
                 print(f'line state {line_state}')
                 print(f'live state {live_state}')
 
-            new_trade_lock = live_state._trade_lock
             new_price = trade.price
             new_open = trade.price if live_state._open == 0.0 else live_state._open
             new_high = trade.price if trade.price > live_state._high else live_state._high
             new_low = trade.price if trade.price < live_state._low else live_state._low
 
-            new_live_state = Live_State(new_trade_lock,new_price,new_open,new_high,new_low)
+            new_live_state = Live_State(new_price,new_open,new_high,new_low)
 
             if buy_resistance((line_state,new_live_state)) and (trade_client.get_account().cash >= 27_000) and (not lock_state._buy):
 
-                if (order_id:=find_available_order_id(order_state)) != -1:
-                    
-                    trade_client.submit_order(generate_call_market_buy(trade)(qty:=10)(order_id))
+                if (available_indx:=find_available_order_id(order_state)) != -1:
+                    order_id = f'{order_state._unique_ids[available_indx]}_{available_indx}'
+                    qty=10
+                    trade_client.submit_order(generate_call_market_buy(trade)(qty)(order_id))
 
                     new_order_state = Order_State(
-                        order_state._position_counts[:order_id] + [qty] + order_state._position_counts[order_id+1:], 
+                        order_state._position_counts[:available_indx] + (qty,) + order_state._position_counts[available_indx+1:], 
+                        order_state._unique_ids[:available_indx] + (order_state._unique_ids[available_indx]+1,) + order_state._unique_ids[available_indx+1:],
                         order_state._prices
                     )
 
@@ -231,89 +252,98 @@ def main():
             
             nonlocal order_state
 
-            if (trade_update.event == TradeEvent.FILL) and (trade_update.order['side'] == OrderSide.BUY):
+            if (trade_update.event == TradeEvent.FILL) and (trade_update.order.side == OrderSide.BUY):
                 
-                order_id = int(trade_update.order['client_order_id'])
+                unique_id,index = [int(i) for i in trade_update.order.client_order_id.split('_')]
 
-                limit_sell_req = generate_call_limit_sell(trade_update.order['symbol'])(1)(round(float(trade_update.order['filled_avg_price'])+0.1,2))(order_id)
-                stop_sell_req = generate_call_stop_sell(trade_update.order['symbol'])(1)(max(0.01,round(float(trade_update.order['filled_avg_price'])-0.05),2))(order_id)
+                limit_id = f'{unique_id+2}_{index}'
+                stop_id = f'{unique_id+1}_{index}'
+
+                limit_sell_req = generate_call_limit_sell(trade_update.order.symbol)(1)(round(trade_update.price+0.1,2))(limit_id)
+                stop_sell_req = generate_call_stop_sell(trade_update.order.symbol)(1)(max(0.01,round(trade_update.price-0.05),2))(stop_id)
 
                 trade_client.submit_order(limit_sell_req)
                 trade_client.submit_order(stop_sell_req)
 
                 order_state = Order_State(
                     order_state._position_counts, 
-                    order_state._prices[:order_id] + [float(trade_update.order['filled_avg_price'])] + order_state._prices[order_id+1:]
+                    order_state._unique_ids[:index] + (order_state._unique_ids[index]+2,) + order_state._unique_ids[index+1:],
+                    order_state._prices[:index] + (trade_update.price,) + order_state._prices[index+1:]
                 )
 
-            elif (trade_update.event == TradeEvent.FILL) and (trade_update.order['type'] == OrderType.LIMIT):
+            elif (trade_update.event == TradeEvent.FILL) and (trade_update.order.type == OrderType.LIMIT):
 
-                order_id = int(trade_update.order['client_order_id'])
+                unique_id,index = [int(i) for i in trade_update.order.client_order_id.split('_')]
 
-                open_orders = trade_client.get_orders(status="open")
-                matching_orders = [order for order in open_orders if order.client_order_id == str(order_id)]
-
-                for order in matching_orders:
-                    trade_client.cancel_order(order.id)
-
-                new_position_count = order_state._position_counts[order_id] - int(trade_update.order['qty'])
-                ref_price = float(trade_update.order['limit_price'])
+                order=trade_client.get_order_by_client_id(f'{unique_id-1}_{index}')
+                trade_client.cancel_order_by_id(order.id)
+                
+                new_position_count = order_state._position_counts[index] - int(trade_update.order.qty)
+                ref_price = float(trade_update.order.limit_price)
 
                 if new_position_count > 0:
 
-                    limit_sell_req = generate_call_limit_sell(trade_update.order['symbol'])(1)(round(ref_price+0.05,2))(order_id)
-                    stop_sell_req = generate_call_stop_sell(trade_update.order['symbol'])(1)(max(0.01,round(ref_price-0.1),2))(order_id)
+                    limit_id = f'{unique_id+2}_{index}'
+                    stop_id = f'{unique_id+1}_{index}'
+
+                    limit_sell_req = generate_call_limit_sell(trade_update.order.symbol)(1)(round(ref_price+0.05,2))(limit_id)
+                    stop_sell_req = generate_call_stop_sell(trade_update.order.symbol)(1)(max(0.01,round(ref_price-0.1),2))(stop_id)
 
                     trade_client.submit_order(limit_sell_req)
                     trade_client.submit_order(stop_sell_req)
 
                 order_state = Order_State(
-                    order_state._position_counts[:order_id] + [new_position_count] + order_state._position_counts[order_id+1:], 
+                    order_state._position_counts[:index] + [new_position_count] + order_state._position_counts[index+1:], 
+                    order_state._unique_ids[:index] + (order_state._unique_ids[index]+2,) + order_state._unique_ids[index+1:],
                     order_state._prices
                 )
-            elif (trade_update.event == TradeEvent.FILL) and (trade_update.order['type'] == OrderType.STOP):
-                order_id = int(trade_update.order['client_order_id'])
+            elif (trade_update.event == TradeEvent.FILL) and (trade_update.order.type == OrderType.STOP):
+                unique_id,index = [int(i) for i in trade_update.order.client_order_id.split('_')]
 
-                open_orders = trade_client.get_orders(status="open")
-                matching_orders = [order for order in open_orders if order.client_order_id == str(order_id)]
+                order=trade_client.get_order_by_client_id(f'{unique_id+1}_{index}')
+                trade_client.cancel_order_by_id(order.id)
 
-                for order in matching_orders:
-                    trade_client.cancel_order(order.id)
-
-                new_position_count = order_state._position_counts[order_id] - int(trade_update.order['qty'])
-                ref_price = float(trade_update.order['stop_price'])
+                new_position_count = order_state._position_counts[index] - int(trade_update.order.qty)
+                ref_price = float(trade_update.order.stop_price)
 
                 if new_position_count > 0:
 
-                    stop_sell_qty = new_position_count if (ref_price-0.05) <= (order_state._prices[order_id] - 0.1) else 1
+                    limit_id = f'{unique_id+3}_{index}'
+                    stop_id = f'{unique_id+2}_{index}'
 
-                    limit_sell_req = generate_call_limit_sell(trade_update.order['symbol'])(1)(round(ref_price+0.1,2))(order_id)
-                    stop_sell_req = generate_call_stop_sell(trade_update.order['symbol'])(stop_sell_qty)(max(0.01,round(ref_price-0.05),2))(order_id)
+                    stop_sell_qty = new_position_count if (ref_price-0.05) <= (order_state._prices[index] - 0.1) else 1
+
+                    limit_sell_req = generate_call_limit_sell(trade_update.order['symbol'])(1)(round(ref_price+0.1,2))(limit_id)
+                    stop_sell_req = generate_call_stop_sell(trade_update.order['symbol'])(stop_sell_qty)(max(0.01,round(ref_price-0.05),2))(stop_id)
 
                     trade_client.submit_order(limit_sell_req)
                     trade_client.submit_order(stop_sell_req)
 
                 order_state = Order_State(
-                    order_state._position_counts[:order_id] + [new_position_count] + order_state._position_counts[order_id+1:], 
+                    order_state._position_counts[:index] + [new_position_count] + order_state._position_counts[index+1:], 
+                    order_state._unique_ids[:index] + (order_state._unique_ids[index]+2,) + order_state._unique_ids[index+1:],
                     order_state._prices
                 )
                 
         return on_bar, on_trade, on_trade_update
     
 
-    stock_stream_client = client('stock_stream')
-    trade_stream_client = client('trade_stream')
-    
-    on_bar_handler, on_trade_handler, on_trade_update_handler = create_stream_handler(initial_state)
+    # asyncio.run(streams(client)(create_stream_handler(initial_state)))
+    # Set up the stream handlers
+    t_handlers = create_stream_handler(initial_state)
 
-    stock_stream_client.subscribe_bars(on_bar_handler,'SPY')
-    stock_stream_client.subscribe_trades(on_trade_handler,'SPY')
-    trade_stream_client.subscribe_trade_updates(on_trade_update_handler)
-    stock_stream_client.run()
-    trade_stream_client.run()
-    # crypto_client.run()
+    # Run the streams in the already running loop
+    loop = asyncio.get_event_loop()
+    nest_asyncio.apply()  # This allows re-entering the running event loop, useful in certain environments
 
-
+    try:
+        # Schedule the coroutine without blocking the existing loop
+        loop.run_until_complete(streams(client)(t_handlers))
+    except KeyboardInterrupt:
+        print("Shutting down streams gracefully.")
+    finally:
+        # Closing the loop explicitly (optional, good for cleanup)
+        loop.close()
 
 if __name__ == "__main__":
 
