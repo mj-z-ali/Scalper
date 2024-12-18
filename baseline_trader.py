@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import datetime
+from datetime import datetime, time, timedelta
 import client as Client
 import asyncio
 from dataclasses import dataclass
@@ -17,6 +17,7 @@ import threading
 @dataclass(frozen=True)
 class Bar_State:
     _size: int=0
+    _bars: tuple=()
     _1m_highs: NDArray[np.float64]=np.array([])
     _1m_lows: NDArray[np.float64]=np.array([])
     _1m_tops: NDArray[np.float64]=np.array([])
@@ -29,20 +30,17 @@ class Line_State:
 
 @dataclass(frozen=True)
 class Live_State:
-    _price: np.float64=0.0
+    _time: np.float64=np.inf
+    _open_time: np.float64=np.inf
+    _buffer: tuple=()
     _open: np.float64=0.0
     _high: np.float64=-np.inf
     _low: np.float64=np.inf
+    _close: np.float64=0.0
 
 @dataclass(frozen=True)
 class Lock_State:
     _buy: bool=False
-
-@dataclass(frozen=True)
-class Order_State:
-    _position_counts: tuple[int, ...]=(0,)*10
-    _unique_ids: tuple[int, ...]=(0,)*10
-    _prices: tuple[int, ...]=(0.0,)*10
 
 def diff_matrix(a: NDArray[np.float64]) -> NDArray[np.float64]:
     return lambda b: a - b.reshape(-1,1)
@@ -112,25 +110,20 @@ def buy_resistance(state:tuple[Line_State, Live_State]) -> bool:
 
     line_state, live_state = state
 
-    return (live_state._price>live_state._open) and (live_state._price==live_state._high) and \
-        ((live_state._open-live_state._low) >= 3*(live_state._price-live_state._open)) and \
-        (live_state._low <= deflection_zone(line_state._1m_r_lines)(live_state._price)(0.05))
+    return (live_state._close>live_state._open) and (live_state._close==live_state._high) and \
+        ((live_state._open-live_state._low) >= 3*(live_state._close-live_state._open)) and \
+        (live_state._low <= deflection_zone(line_state._1m_r_lines)(live_state._close)(0.05))
 
-
-def find_available_order_id(order_state: Order_State) -> int:
-
-    return order_state._position_counts.index(0) if 0 in order_state._position_counts else -1
 
 def generate_call_market_buy(trade: Trade) -> MarketOrderRequest:
 
-    return lambda qty: lambda order_id: MarketOrderRequest(
+    return lambda qty: MarketOrderRequest(
         symbol= f"{trade.symbol}{trade.timestamp.strftime('%y%m%d')}C{int(int(trade.price)*1000):08d}",
         qty= qty,
         side= OrderSide.BUY,
         type= OrderType.MARKET,
         time_in_force= TimeInForce.DAY,
-        order_class= OrderClass.SIMPLE,
-        client_order_id= str(order_id)
+        order_class= OrderClass.SIMPLE
     )
 
 def generate_call_limit_sell(symbol: str) -> Callable:
@@ -143,7 +136,7 @@ def generate_call_limit_sell(symbol: str) -> Callable:
         limit_price= price,
         time_in_force= TimeInForce.DAY,
         order_class= OrderClass.SIMPLE,
-        client_order_id= str(order_id)
+        client_order_id= order_id
     )
 
 def generate_call_stop_sell(symbol: str) -> Callable:
@@ -154,226 +147,216 @@ def generate_call_stop_sell(symbol: str) -> Callable:
         side= OrderSide.SELL,
         stop_price= price,
         time_in_force= TimeInForce.DAY, 
-        client_order_id= str(order_id)
+        client_order_id= order_id
     )
 
 
 def streams(client:Client) -> Callable:
 
-    async def stock_data(t_handlers: tuple[Callable,Callable]) -> None:
-        stock_stream_client = client('crypto_stream')
-        stock_stream_client.subscribe_bars(t_handlers[0],'BTC/USD')
-        stock_stream_client.subscribe_trades(t_handlers[1],'BTC/USD')
-        await stock_stream_client.run()
+    def stock_data_task(t_handlers: tuple[Callable,Callable,Callable]) -> Callable:
+        stock_stream_client = client('stock_stream')
+        stock_stream_client.subscribe_bars(t_handlers[0],'SPY')
+        stock_stream_client.subscribe_updated_bars(t_handlers[1],'SPY')
+        stock_stream_client.subscribe_trades(t_handlers[2],'SPY')
+        return stock_stream_client.run
 
-    async def trade_update(handler:Callable) -> None:
+    def trade_update_task(handler:Callable) -> Callable:
         trade_stream_client = client('trade_stream')
         trade_stream_client.subscribe_trade_updates(handler)
-        await trade_stream_client.run()
+        return trade_stream_client.run
     
-    async def run(t_handlers: tuple[Callable, Callable, Callable]) -> None:
-        await asyncio.gather(stock_data(t_handlers[:-1]), trade_update(t_handlers[-1]))
+    def run(t_handlers: tuple[Callable, Callable, Callable, Callable]) -> tuple[Callable, Callable]:
+        return stock_data_task(t_handlers[:-1]), trade_update_task(t_handlers[-1])
     return run
 
 def main():
 
     client = Client.initialize(paper=True)
 
-    initial_state = (Bar_State(), Line_State(), Live_State(), Order_State(), Lock_State())
+    initial_state = (Bar_State(), Line_State(), Live_State(), Lock_State())
     
-    def create_stream_handler(state: tuple[Bar_State, Line_State, Live_State]) -> Callable:
+    def create_stream_handler(state: tuple[Bar_State, Line_State, Live_State, Lock_State]) -> Callable:
 
         trade_client = client('trade')
-        bar_state, line_state, live_state, order_state, lock_state = state
+        bar_state, line_state, live_state, lock_state = state
 
         async def on_bar(bar:Bar) -> None:
-            print(bar)
-
+            print(f'bar {bar}\n')
             
+            if bar.timestamp.time() < time(14,30):
+                print('Closed')
+                return
             nonlocal bar_state, line_state, live_state, lock_state
 
             new_size = bar_state._size+1
+            new_bars = bar_state._bars + (bar,)
             new_1m_highs = np.append(bar_state._1m_highs,bar.high)
             new_1m_lows = np.append(bar_state._1m_lows, bar.low)
             bar_top, bar_bottom = (bar.close,bar.open) if bar.close >= bar.open else (bar.open,bar.close)
             new_1m_tops = np.append(bar_state._1m_tops,bar_top)
             new_1m_bottoms = np.append(bar_state._1m_bottoms,bar_bottom)
 
-            new_bar_state = Bar_State(new_size, new_1m_highs, new_1m_lows, new_1m_tops, new_1m_bottoms)
+            new_bar_state = Bar_State(new_size, new_bars, new_1m_highs, new_1m_lows, new_1m_tops, new_1m_bottoms)
 
             new_1m_r_lines = np.sort(resistance_lines(new_bar_state)) if new_size >= 2 else line_state._1m_r_lines
             # new_1m_s_lines = np.sort(support_lines(new_bar_state)) if new_size >= 2 else line_state._1m_s_lines
             new_1m_s_lines=0
             new_line_state = Line_State(new_1m_r_lines, new_1m_s_lines)
+
+            print(f"bar_state {new_bar_state}\n")
+            print(f"line_state {new_line_state}\n")
+            print(f"old live_state {live_state}\n")
                 
             new_live_state = Live_State()
 
+            print(f"new live_state {new_live_state}\n")
+
+            print(f"old lock_state {lock_state}\n")
+
             new_lock_state = Lock_State()
 
-            bar_state, line_state, live_state, lock_state = new_bar_state, new_line_state, new_live_state, new_lock_state
+            print(f"new lock_state {new_lock_state}\n")
 
+            bar_state, line_state, live_state, lock_state = new_bar_state, new_line_state, new_live_state, new_lock_state
+            
             return None
         
+        async def on_bar_update(bar:Bar) -> None:
+            print(f'bar update {bar}\n')
+            if bar.timestamp.time() < time(14,30):
+                print('Closed')
+                return
+            nonlocal bar_state, line_state
+
+            new_bars = bar_state._bars[:-1] + (bar,)
+            new_1m_highs = np.append(bar_state._1m_highs[:-1],bar.high)
+            new_1m_lows = np.append(bar_state._1m_lows[:-1], bar.low)
+            bar_top, bar_bottom = (bar.close,bar.open) if bar.close >= bar.open else (bar.open,bar.close)
+            new_1m_tops = np.append(bar_state._1m_tops[:-1],bar_top)
+            new_1m_bottoms = np.append(bar_state._1m_bottoms[:-1],bar_bottom)
+
+            new_bar_state = Bar_State(bar_state._size, new_bars, new_1m_highs, new_1m_lows, new_1m_tops, new_1m_bottoms)
+
+            new_1m_r_lines = np.sort(resistance_lines(new_bar_state)) if bar_state._size >= 2 else line_state._1m_r_lines
+            # new_1m_s_lines = np.sort(support_lines(new_bar_state)) if new_size >= 2 else line_state._1m_s_lines
+            new_1m_s_lines=0
+            new_line_state = Line_State(new_1m_r_lines, new_1m_s_lines)
+
+            bar_state, line_state = new_bar_state, new_line_state
+        
         async def on_trade(trade:Trade) -> None:
+            print(f'trade {trade}\n')
+            if trade.timestamp.time() < time(14,30):
+                print('closed')
+                return
+            nonlocal bar_state, line_state, live_state, lock_state
+            if (bar_state._bars != tuple()) and trade.timestamp.timestamp() < bar_state._bars[-1].timestamp.timestamp()+60:
+                return None
+            if trade.timestamp.timestamp() <= live_state._time:
+                new_time = trade.timestamp.timestamp() if live_state._time == np.inf else live_state._time
+                new_open_time = min(trade.timestamp.timestamp(), live_state._open_time)
+                new_open = trade.price if trade.timestamp.timestamp() < live_state._open_time else live_state._open
+                new_high = max(trade.price, live_state._high)
+                new_low = min(trade.price, live_state._low)
+                new_close = trade.price if live_state._time == np.inf else live_state._close
+                live_state = Live_State(new_time, new_open_time, live_state._buffer, new_open, new_high, new_low, new_close)
             
-            nonlocal bar_state, line_state, live_state, order_state, lock_state
+            else:
+                new_buffer = live_state._buffer + (trade,)
+                live_state = Live_State(live_state._time, live_state._open_time, new_buffer, live_state._open, live_state._high, live_state._low, live_state._close)
 
-            if trade.timestamp.time() > datetime.time(16,0,0):
-                print(f'bar state {bar_state}')
-                print(f'line state {line_state}')
-                print(f'live state {live_state}')
+            if datetime.now().timestamp() >= live_state._time + 0.5:
 
-            new_price = trade.price
-            new_open = trade.price if live_state._open == 0.0 else live_state._open
-            new_high = trade.price if trade.price > live_state._high else live_state._high
-            new_low = trade.price if trade.price < live_state._low else live_state._low
-
-            new_live_state = Live_State(new_price,new_open,new_high,new_low)
-
-            if buy_resistance((line_state,new_live_state)) and (trade_client.get_account().cash >= 27_000) and (not lock_state._buy):
-
-                if (available_indx:=find_available_order_id(order_state)) != -1:
-                    order_id = f'{order_state._unique_ids[available_indx]}_{available_indx}'
-                    qty=10
-                    trade_client.submit_order(generate_call_market_buy(trade)(qty)(order_id))
-
-                    new_order_state = Order_State(
-                        order_state._position_counts[:available_indx] + (qty,) + order_state._position_counts[available_indx+1:], 
-                        order_state._unique_ids[:available_indx] + (order_state._unique_ids[available_indx]+1,) + order_state._unique_ids[available_indx+1:],
-                        order_state._prices
-                    )
-
-                    order_state = new_order_state
-
-                    lock_state = Lock_State(True)
-
+                if buy_resistance((line_state,live_state)) and (trade_client.get_account().cash >= 27_000) and (not lock_state._buy) and (trade.timestamp.time() < time(20,0,0)):
+                        print('Buying')
+                        print(f"trigger state {live_state}\n")
+                        qty=10
+                        trade_client.submit_order(generate_call_market_buy(trade)(qty))
+                        lock_state = Lock_State(True)
+                
+                sorted_buffer = tuple(sorted(live_state._buffer, key= lambda t: t.timestamp.timestamp()))
+                if sorted_buffer != tuple():
+                    new_trade = sorted_buffer[0]
+                    new_time = new_trade.timestamp.timestamp()
+                    new_open_time = min(new_trade.timestamp.timestamp(), live_state._open_time)
+                    new_open = new_trade.price if new_trade.timestamp.timestamp() < live_state._open_time else live_state._open
+                    new_high = max(new_trade.price, live_state._high)
+                    new_low = min(new_trade.price, live_state._low)
+                    new_close = new_trade.price
+                    live_state = Live_State(new_time, new_open_time, sorted_buffer[1:], new_open, new_high, new_low, new_close)
+                else:
+                    live_state = Live_State(np.inf, live_state._open_time, live_state._buffer, live_state._open, live_state._high, live_state._low, live_state._close)
+        
 
         async def on_trade_update(trade_update: TradeUpdate):
             
-            nonlocal order_state
-
             if (trade_update.event == TradeEvent.FILL) and (trade_update.order.side == OrderSide.BUY):
+                print(f'Bought {trade_update.order.symbol}')
+                unique_id, max_stop_loss = int(trade_update.execution_id), round(trade_update.price-0.1,2)
                 
-                unique_id,index = [int(i) for i in trade_update.order.client_order_id.split('_')]
-
-                limit_id = f'{unique_id+2}_{index}'
-                stop_id = f'{unique_id+1}_{index}'
-
-                limit_sell_req = generate_call_limit_sell(trade_update.order.symbol)(1)(round(trade_update.price+0.1,2))(limit_id)
-                stop_sell_req = generate_call_stop_sell(trade_update.order.symbol)(1)(max(0.01,round(trade_update.price-0.05),2))(stop_id)
-
+                
+                limit_id, stop_id = f'{unique_id}_{max_stop_loss}_{trade_update.qty}_0', f'{unique_id}_{max_stop_loss}_{trade_update.qty}_1'
+                limit_price, stop_price = round(trade_update.price+0.1,2), max(0.01,round(trade_update.price-0.05,2))
+                print(f'limit price {limit_price}')
+                print(f'stop price {stop_price}')
+                limit_sell_req = generate_call_limit_sell(trade_update.order.symbol)(1)(limit_price)(limit_id)
+                stop_sell_req = generate_call_stop_sell(trade_update.order.symbol)(1)(stop_price)(stop_id)
+                
+                print("\nsubmitting limit sell")
                 trade_client.submit_order(limit_sell_req)
+                print('submitting stop sell')
                 trade_client.submit_order(stop_sell_req)
 
-                order_state = Order_State(
-                    order_state._position_counts, 
-                    order_state._unique_ids[:index] + (order_state._unique_ids[index]+2,) + order_state._unique_ids[index+1:],
-                    order_state._prices[:index] + (trade_update.price,) + order_state._prices[index+1:]
-                )
+            elif (trade_update.event == TradeEvent.FILL) and (trade_update.order.side == OrderSide.SELL):
 
-            elif (trade_update.event == TradeEvent.FILL) and (trade_update.order.type == OrderType.LIMIT):
+                print(f"sell id {trade_update.order.client_order_id}\n")
+                unique_id, max_stop_loss, qty, is_stop_sell = [float(n) if i == 1 or i == 2 else int(n) for i,n in enumerate(trade_update.order.client_order_id.split('_'))]
 
-                unique_id,index = [int(i) for i in trade_update.order.client_order_id.split('_')]
-
-                order=trade_client.get_order_by_client_id(f'{unique_id-1}_{index}')
-                trade_client.cancel_order_by_id(order.id)
+                order_to_cancel=trade_client.get_order_by_client_id(f'{unique_id}_{max_stop_loss}_{qty}_{int(not is_stop_sell)}')
+                print(f"canceling order {order_to_cancel}\n")
+                trade_client.cancel_order_by_id(order_to_cancel.id)
                 
-                new_position_count = order_state._position_counts[index] - int(trade_update.order.qty)
-                ref_price = float(trade_update.order.limit_price)
+        
+                new_qty = qty - trade_update.qty
+                print(f'new qty {new_qty}')
+                if new_qty > 0:
+                    
+                    limit_id, stop_id = f'{unique_id}_{max_stop_loss}_{new_qty}_0', f'{unique_id}_{max_stop_loss}_{new_qty}_1'
 
-                if new_position_count > 0:
+                    limit_price, stop_price = round(float(trade_update.order.stop_price)+0.1,2), max(0.01,round(float(trade_update.order.stop_price)-0.05,2)) if is_stop_sell else round(float(trade_update.order.limit_price)+0.05,2), max(0.01,round(float(trade_update.order.limit_price)-0.1,2))
+                    print(f'limit price {limit_price}')
+                    print(f'stop price {stop_price}')
+                    stop_sell_qty = new_qty if stop_price <= max_stop_loss else 1
 
-                    limit_id = f'{unique_id+2}_{index}'
-                    stop_id = f'{unique_id+1}_{index}'
+                    limit_sell_req = generate_call_limit_sell(trade_update.order.symbol)(1)(limit_price)(limit_id)
+                    stop_sell_req = generate_call_stop_sell(trade_update.order.symbol)(stop_sell_qty)(stop_price)(stop_id)
 
-                    limit_sell_req = generate_call_limit_sell(trade_update.order.symbol)(1)(round(ref_price+0.05,2))(limit_id)
-                    stop_sell_req = generate_call_stop_sell(trade_update.order.symbol)(1)(max(0.01,round(ref_price-0.1),2))(stop_id)
-
+                    print("\nsubmitting limit sell")
                     trade_client.submit_order(limit_sell_req)
+                    print('submitting stop sell')
                     trade_client.submit_order(stop_sell_req)
-
-                order_state = Order_State(
-                    order_state._position_counts[:index] + [new_position_count] + order_state._position_counts[index+1:], 
-                    order_state._unique_ids[:index] + (order_state._unique_ids[index]+2,) + order_state._unique_ids[index+1:],
-                    order_state._prices
-                )
-            elif (trade_update.event == TradeEvent.FILL) and (trade_update.order.type == OrderType.STOP):
-                unique_id,index = [int(i) for i in trade_update.order.client_order_id.split('_')]
-
-                order=trade_client.get_order_by_client_id(f'{unique_id+1}_{index}')
-                trade_client.cancel_order_by_id(order.id)
-
-                new_position_count = order_state._position_counts[index] - int(trade_update.order.qty)
-                ref_price = float(trade_update.order.stop_price)
-
-                if new_position_count > 0:
-
-                    limit_id = f'{unique_id+3}_{index}'
-                    stop_id = f'{unique_id+2}_{index}'
-
-                    stop_sell_qty = new_position_count if (ref_price-0.05) <= (order_state._prices[index] - 0.1) else 1
-
-                    limit_sell_req = generate_call_limit_sell(trade_update.order['symbol'])(1)(round(ref_price+0.1,2))(limit_id)
-                    stop_sell_req = generate_call_stop_sell(trade_update.order['symbol'])(stop_sell_qty)(max(0.01,round(ref_price-0.05),2))(stop_id)
-
-                    trade_client.submit_order(limit_sell_req)
-                    trade_client.submit_order(stop_sell_req)
-
-                order_state = Order_State(
-                    order_state._position_counts[:index] + [new_position_count] + order_state._position_counts[index+1:], 
-                    order_state._unique_ids[:index] + (order_state._unique_ids[index]+2,) + order_state._unique_ids[index+1:],
-                    order_state._prices
-                )
                 
-        return on_bar, on_trade, on_trade_update
+        return on_bar, on_bar_update, on_trade, on_trade_update
     
 
-    # asyncio.run(streams(client)(create_stream_handler(initial_state)))
-    # Set up the stream handlers
     t_handlers = create_stream_handler(initial_state)
 
-    # Run the streams in the already running loop
-    loop = asyncio.get_event_loop()
-    nest_asyncio.apply()  # This allows re-entering the running event loop, useful in certain environments
+    target_0, target_1 = streams(client)(t_handlers)
 
-    try:
-        # Schedule the coroutine without blocking the existing loop
-        loop.run_until_complete(streams(client)(t_handlers))
-    except KeyboardInterrupt:
-        print("Shutting down streams gracefully.")
-    finally:
-        # Closing the loop explicitly (optional, good for cleanup)
-        loop.close()
+    print('starting threads')
+    thread_0=threading.Thread(target=target_0)
+    thread_1=threading.Thread(target=target_1)
+
+    thread_0.start()
+    thread_1.start()
+    print('finishing')
+    thread_0.join()
+    thread_1.join()
+
+
+    
 
 if __name__ == "__main__":
 
-    
-
     main()
-    '''
-    try:
-        order = trade_client.submit_order(
-            symbol='SPY241202C00604000',
-            qty=1,
-            side='buy',
-            type='market',           # Use 'limit' if you want to specify a limit price
-            time_in_force='day',
-            order_class='simple'     # Options are generally 'simple' orders
-        )
-        print("Order submitted:")
-        print(order)
-    except Exception as e:
-        print(f"An error occurred: {e}")
     
-    
-
-    positions = trade_client.list_positions()
-
-    for position in positions:
-        if position.symbol == 'SPY241202C00604000':
-            print("Current position in the option:")
-            print(f"Symbol: {position.symbol}")
-            print(f"Quantity: {position.qty}")
-            print(f"Current Price: {position.current_price}")
-            print(f"Market Value: {position.market_value}")
-    '''
