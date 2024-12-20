@@ -12,7 +12,8 @@ from alpaca.trading.enums import OrderSide, OrderType, OrderClass, TimeInForce, 
 from alpaca.trading.models import TradeUpdate
 from alpaca.trading.client import TradingClient
 import threading
-
+import ipdb
+import math
 
 @dataclass(frozen=True)
 class Bar_State:
@@ -76,43 +77,47 @@ def left_boundary_points(m: NDArray[np.bool_]) -> NDArray[np.uint64]:
     return default_points(last_points(m))
 
 def q_r_matrix(highs: NDArray[np.float64]) -> Callable:
-
+    
     q = diff_matrix(highs)(highs)
 
-    return lambda lower_range: lambda upper_range: (q >= lower_range) & (q <= upper_range)
+    return lambda lower_range: lambda upper_range: (np.isclose(q,lower_range) | (q > lower_range)) & (q <= upper_range)
 
 def q_b_matrix(tops: NDArray[np.float64]) -> NDArray[np.bool_]:
 
     def q_b(highs: NDArray) -> NDArray[np.bool_]:
-
+        
         q_mask = diff_matrix(tops)(highs) > 0
-        cols = q_mask.shape[1]
+        cols = np.arange(q_mask.shape[1])
 
         return (cols > left_boundary_points(left_mask(q_mask))[:,None]) & \
             (cols < right_boundary_points(right_mask(q_mask))[:,None])
     return q_b
 
+B = Bar_State(_1m_highs=np.array([1,2,1,1.99,8]),_1m_tops=np.array([0.9,1.9,0.98,1.89,7]))
 def resistance_lines(bar_state:Bar_State) -> NDArray[np.float64]:
-
+    
+    print('entered resistance_line function')
     q_r = q_r_matrix(bar_state._1m_highs)(-0.01)(0)
-
+    print('processed q_r')
     q_b = q_b_matrix(bar_state._1m_tops)(bar_state._1m_highs)
-
+    print('processed q_b')
     return bar_state._1m_highs[(q_r & q_b).sum(axis=1) >= 2]
 
-def deflection_zone(res_points:NDArray[np.float64]) -> np.float64:
 
+def deflection_zone(res_points:NDArray[np.float64]) -> np.float64:
+    
     return lambda p: lambda eps: (indx:=np.searchsorted(res_points, p), 
                 res_points[indx-1]+eps if indx > 0 else -np.inf
             )[1] 
 
 def buy_resistance(state:tuple[Line_State, Live_State]) -> bool:
-
+    
     line_state, live_state = state
 
     return (live_state._close>live_state._open) and (live_state._close==live_state._high) and \
         ((live_state._open-live_state._low) >= 3*(live_state._close-live_state._open)) and \
-        (live_state._low <= deflection_zone(line_state._1m_r_lines)(live_state._close)(0.05))
+        (live_state._low <= deflection_zone(np.sort(line_state._1m_r_lines))(live_state._close)(0.05))
+
 
 
 def generate_call_market_buy(trade: Trade) -> MarketOrderRequest:
@@ -169,6 +174,47 @@ def streams(client:Client) -> Callable:
         return stock_data_task(t_handlers[:-1]), trade_update_task(t_handlers[-1])
     return run
 
+
+def sale_code(conditions:list[str]) -> int:
+
+    table = {
+        ' ': 1,
+        'A': 1,
+        'B': 0,
+        'C': 0,
+        'D': 1,
+        'E': 1,
+        'F': 1,
+        'G': 2,
+        'H': 0,
+        'I': 0,
+        'K': 1,
+        'L': 3,
+        'M': 0,
+        'N': 0,
+        'O': 1,
+        'P': 2,
+        'Q': 0,
+        'R': 0,
+        'S': 1,
+        'T': 0,
+        'U': 0,
+        'V': 0,
+        'W': 0,
+        'X': 1,
+        'Y': 1,
+        'Z': 2,
+        '1': 1,
+        '4': 2,
+        '5': 1,
+        '6': 1,
+        '7': 0,
+        '8': 0,
+        '9': 1
+    }
+
+    return  math.prod(set(map(lambda condition: table[condition], conditions)))
+
 def main():
 
     client = Client.initialize(paper=True)
@@ -198,7 +244,7 @@ def main():
 
             new_bar_state = Bar_State(new_size, new_bars, new_1m_highs, new_1m_lows, new_1m_tops, new_1m_bottoms)
 
-            new_1m_r_lines = np.sort(resistance_lines(new_bar_state)) if new_size >= 2 else line_state._1m_r_lines
+            new_1m_r_lines = resistance_lines(new_bar_state) if new_size >= 2 else line_state._1m_r_lines
             # new_1m_s_lines = np.sort(support_lines(new_bar_state)) if new_size >= 2 else line_state._1m_s_lines
             new_1m_s_lines=0
             new_line_state = Line_State(new_1m_r_lines, new_1m_s_lines)
@@ -342,6 +388,8 @@ def main():
     t_handlers = create_stream_handler(initial_state)
 
     target_0, target_1 = streams(client)(t_handlers)
+
+    
 
     print('starting threads')
     thread_0=threading.Thread(target=target_0)
