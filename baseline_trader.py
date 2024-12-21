@@ -1,10 +1,10 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, time, timedelta
+import pytz
 import client as Client
-import asyncio
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Union
 from numpy.typing import NDArray
 from alpaca.data.models import Bar, Trade
 from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, StopOrderRequest, GetOrdersRequest
@@ -32,12 +32,19 @@ class Line_State:
 @dataclass(frozen=True)
 class Live_State:
     _time: np.float64=np.inf
-    _open_time: np.float64=np.inf
-    _buffer: tuple=()
-    _open: np.float64=0.0
+    _open_time: np.float64= np.inf
+    _open: np.float64=np.inf
     _high: np.float64=-np.inf
     _low: np.float64=np.inf
-    _close: np.float64=0.0
+    _last: np.float64=0.0
+    _left_time_buffer: NDArray[np.float64]=np.array([])
+    _left_price_buffer: NDArray[np.float64]=np.array([])
+    _left_condition_buffer: NDArray[np.uint64]=np.array([])
+    _left_exchange_buffer: NDArray[np.uint64]=np.array([])
+    _right_time_buffer: NDArray[np.float64]=np.array([])
+    _right_price_buffer: NDArray[np.float64]=np.array([])
+    _right_condition_buffer: NDArray[np.uint64]=np.array([])
+    _right_exchange_buffer: NDArray[np.uint64]=np.array([])
 
 @dataclass(frozen=True)
 class Lock_State:
@@ -93,7 +100,7 @@ def q_b_matrix(tops: NDArray[np.float64]) -> NDArray[np.bool_]:
             (cols < right_boundary_points(right_mask(q_mask))[:,None])
     return q_b
 
-B = Bar_State(_1m_highs=np.array([1,2,1,1.99,8]),_1m_tops=np.array([0.9,1.9,0.98,1.89,7]))
+
 def resistance_lines(bar_state:Bar_State) -> NDArray[np.float64]:
     
     print('entered resistance_line function')
@@ -114,9 +121,9 @@ def buy_resistance(state:tuple[Line_State, Live_State]) -> bool:
     
     line_state, live_state = state
 
-    return (live_state._close>live_state._open) and (live_state._close==live_state._high) and \
-        ((live_state._open-live_state._low) >= 3*(live_state._close-live_state._open)) and \
-        (live_state._low <= deflection_zone(np.sort(line_state._1m_r_lines))(live_state._close)(0.05))
+    return (live_state._last>live_state._open) and (live_state._last==live_state._high) and \
+        ((live_state._open-live_state._low) >= 15*(live_state._last-live_state._open)) and \
+        (live_state._low <= deflection_zone(np.sort(line_state._1m_r_lines))(live_state._last)(0.15))
 
 
 
@@ -175,7 +182,7 @@ def streams(client:Client) -> Callable:
     return run
 
 
-def sale_code(conditions:list[str]) -> int:
+def get_sale_condition(conditions:list[str]) -> int:
 
     table = {
         ' ': 1,
@@ -213,7 +220,65 @@ def sale_code(conditions:list[str]) -> int:
         '9': 1
     }
 
-    return  math.prod(set(map(lambda condition: table[condition], conditions)))
+    code = math.prod(set(map(lambda condition: table[condition], conditions)))
+
+    # Possible codes are 0,1,2,3,6. 
+    # If 6, code is result of 2*3 and Note 2
+    # takes precedence over Note 3, return 2.
+    return 2 if code == 6 else code
+
+def is_dst() -> bool:
+
+    return datetime.now().astimezone(pytz.timezone('America/New_York')).dst() != timedelta(0)
+
+def market_hours() -> tuple[time,time]:
+
+    start_time, end_time = (time(13,30),time(20,0)) if is_dst() else (time(14,30),time(21,0))
+
+    return start_time, end_time
+
+def premarket_hours()-> tuple[time,time]:
+
+    start_time, end_time = (time(8,00),time(13,30)) if is_dst() else (time(9,0),time(14,30))
+
+    return start_time, end_time
+
+def is_before_trading_cutoff_period(trade:Trade) -> bool:
+
+    cut_off = time(18,0) if is_dst() else time(19,0)
+
+    return trade.timestamp.time() < cut_off
+
+def is_during_hours(hours:Callable) -> Callable:
+
+    start_time, end_time = hours()
+
+    def is_data_within_hours(stream_data:Union[Bar, Trade]) -> bool:
+        data_time = stream_data.timestamp.time()
+        return (data_time >= start_time) and (data_time < end_time)
+
+    return is_data_within_hours
+
+def is_late_trade(trade:Trade):
+
+    return lambda bar_state: (bar_state._size > 0) and trade.timestamp.timestamp() < bar_state._bars[-1].timestamp.timestamp()+60
+
+
+def last_price_index(trade_data:tuple[NDArray[np.uint64], NDArray[np.uint64]]) -> Callable:
+
+    conditions, exchanges = trade_data
+
+    def find_last_price_index(index:np.uint64) -> np.uint64:
+
+        if (conditions[index] == 1) or (index == 0):
+            return index
+        elif conditions[index] == 2:
+            return find_last_price_index(index-1)
+        else:
+            last_index = find_last_price_index(index-1)
+            return index if (exchanges[last_index] == exchanges[index]) or (exchanges[index] == ord('P')) else last_index
+
+    return find_last_price_index(conditions.shape[0]-1)
 
 def main():
 
@@ -223,13 +288,15 @@ def main():
     
     def create_stream_handler(state: tuple[Bar_State, Line_State, Live_State, Lock_State]) -> Callable:
 
+        is_during_market = is_during_hours(market_hours)
+
         trade_client = client('trade')
         bar_state, line_state, live_state, lock_state = state
 
         async def on_bar(bar:Bar) -> None:
             print(f'bar {bar}\n')
             
-            if bar.timestamp.time() < time(14,30):
+            if not is_during_market(bar):
                 print('Closed')
                 return
             nonlocal bar_state, line_state, live_state, lock_state
@@ -269,9 +336,10 @@ def main():
         
         async def on_bar_update(bar:Bar) -> None:
             print(f'bar update {bar}\n')
-            if bar.timestamp.time() < time(14,30):
+            if not is_during_market(bar):
                 print('Closed')
                 return
+            
             nonlocal bar_state, line_state
 
             new_bars = bar_state._bars[:-1] + (bar,)
@@ -291,51 +359,95 @@ def main():
             bar_state, line_state = new_bar_state, new_line_state
         
         async def on_trade(trade:Trade) -> None:
+
             print(f'trade {trade}\n')
-            if trade.timestamp.time() < time(14,30):
-                print('closed')
-                return
+
             nonlocal bar_state, line_state, live_state, lock_state
-            if (bar_state._bars != tuple()) and trade.timestamp.timestamp() < bar_state._bars[-1].timestamp.timestamp()+60:
+
+            trade_condition = get_sale_condition(trade.conditions)
+
+            if (not is_during_market(trade)) or (trade_condition==0) or (is_late_trade(trade)(bar_state)):
                 return None
+            
+
             if trade.timestamp.timestamp() <= live_state._time:
                 new_time = trade.timestamp.timestamp() if live_state._time == np.inf else live_state._time
                 new_open_time = min(trade.timestamp.timestamp(), live_state._open_time)
-                new_open = trade.price if trade.timestamp.timestamp() < live_state._open_time else live_state._open
-                new_high = max(trade.price, live_state._high)
-                new_low = min(trade.price, live_state._low)
-                new_close = trade.price if live_state._time == np.inf else live_state._close
-                live_state = Live_State(new_time, new_open_time, live_state._buffer, new_open, new_high, new_low, new_close)
-            
+                new_left_time_buffer = np.append(live_state._left_time_buffer, trade.timestamp.timestamp())
+                new_left_price_buffer = np.append(live_state._left_price_buffer, trade.price)
+                new_left_condition_buffer = np.append(live_state._left_condition_buffer, trade_condition)
+                new_left_exchange_buffer = np.append(live_state._left_exchange_buffer, ord(trade.exchange))
+
+                live_state = Live_State(
+                    new_time, new_open_time, live_state._open, live_state._high, live_state._low, live_state._last,
+                    new_left_time_buffer, new_left_price_buffer, new_left_condition_buffer, new_left_exchange_buffer,
+                    live_state._right_time_buffer, live_state._right_price_buffer, live_state._right_condition_buffer, live_state._right_exchange_buffer
+                )
+
             else:
-                new_buffer = live_state._buffer + (trade,)
-                live_state = Live_State(live_state._time, live_state._open_time, new_buffer, live_state._open, live_state._high, live_state._low, live_state._close)
+                new_right_time_buffer = np.append(live_state._right_time_buffer, trade.timestamp.timestamp())
+                new_right_price_buffer = np.append(live_state._right_price_buffer, trade.price)
+                new_right_condition_buffer = np.append(live_state._right_condition_buffer, trade_condition)
+                new_right_exchange_buffer = np.append(live_state._right_exchange_buffer, ord(trade.exchange))
+                live_state = Live_State(
+                    live_state._time, live_state._open_time, live_state._open, live_state._high, live_state._low, live_state._last,
+                    live_state._left_time_buffer, live_state._left_price_buffer, live_state._left_condition_buffer, live_state._left_exchange_buffer,
+                    new_right_time_buffer, new_right_price_buffer, new_right_condition_buffer, new_right_exchange_buffer
+                )
 
-            if datetime.now().timestamp() >= live_state._time + 0.5:
+            if datetime.now().timestamp() >= live_state._time + 0.05:
 
-                if buy_resistance((line_state,live_state)) and (trade_client.get_account().cash >= 27_000) and (not lock_state._buy) and (trade.timestamp.time() < time(20,0,0)):
+                sorted_left_indices = np.argsort(live_state._left_time_buffer)
+                sorted_left_time_buffer = live_state._left_time_buffer[sorted_left_indices]
+                sorted_left_price_buffer = live_state._left_price_buffer[sorted_left_indices]
+                sorted_left_condition_buffer = live_state._left_condition_buffer[sorted_left_indices]
+                sorted_left_exchange_buffer = live_state._left_exchange_buffer[sorted_left_indices]
+
+                new_open = sorted_left_price_buffer[0] if live_state._open==np.inf else live_state._open
+                new_high = max(np.max(sorted_left_price_buffer),live_state._high)
+                new_low  = min(np.min(sorted_left_price_buffer),live_state._low)
+                new_last = sorted_left_price_buffer[last_price_index((sorted_left_condition_buffer, sorted_left_exchange_buffer))]
+
+                live_state = Live_State(
+                    live_state._time, live_state._open_time, new_open, new_high, new_low, new_last,
+                    live_state._left_time_buffer, live_state._left_price_buffer, live_state._left_condition_buffer, live_state._left_exchange_buffer,
+                    live_state._right_time_buffer, live_state._right_price_buffer, live_state._right_condition_buffer, live_state._right_exchange_buffer,
+                )
+                if buy_resistance((line_state,live_state)) and (float(trade_client.get_account().cash) >= 27_000) and (not lock_state._buy) and is_before_trading_cutoff_period(trade):
                         print('Buying')
                         print(f"trigger state {live_state}\n")
                         qty=10
                         trade_client.submit_order(generate_call_market_buy(trade)(qty))
                         lock_state = Lock_State(True)
                 
-                sorted_buffer = tuple(sorted(live_state._buffer, key= lambda t: t.timestamp.timestamp()))
-                if sorted_buffer != tuple():
-                    new_trade = sorted_buffer[0]
-                    new_time = new_trade.timestamp.timestamp()
-                    new_open_time = min(new_trade.timestamp.timestamp(), live_state._open_time)
-                    new_open = new_trade.price if new_trade.timestamp.timestamp() < live_state._open_time else live_state._open
-                    new_high = max(new_trade.price, live_state._high)
-                    new_low = min(new_trade.price, live_state._low)
-                    new_close = new_trade.price
-                    live_state = Live_State(new_time, new_open_time, sorted_buffer[1:], new_open, new_high, new_low, new_close)
-                else:
-                    live_state = Live_State(np.inf, live_state._open_time, live_state._buffer, live_state._open, live_state._high, live_state._low, live_state._close)
-        
+                sorted_right_indices = np.argsort(live_state._right_time_buffer)
+                sorted_right_time_buffer = live_state._right_time_buffer[sorted_right_indices]
+                sorted_right_price_buffer = live_state._right_price_buffer[sorted_right_indices]
+                sorted_right_condition_buffer = live_state._right_condition_buffer[sorted_right_indices]
+                sorted_right_exchange_buffer = live_state._right_exchange_buffer[sorted_right_indices]
+                
+                if sorted_right_indices.shape[0] > 0:
+                    
+                    new_time = sorted_right_time_buffer[0]
+                    new_left_time_buffer = np.array([sorted_right_time_buffer[0]])
+                    new_left_price_buffer = np.array([sorted_right_price_buffer[0]])
+                    new_left_condition_buffer = np.array([sorted_right_condition_buffer[0]])
+                    new_left_exchange_buffer = np.array([sorted_right_exchange_buffer[0]])
 
+                    live_state = Live_State(
+                        new_time, live_state._open_time, live_state._open, new_high, new_low, new_last,
+                        new_left_time_buffer, new_left_price_buffer, new_left_condition_buffer, new_left_exchange_buffer,
+                        sorted_right_time_buffer[1:], sorted_right_price_buffer[1:], sorted_right_condition_buffer[1:], sorted_right_exchange_buffer[1:],
+                    )
+
+                else:
+
+                    live_state = Live_State(
+                        np.inf, live_state._open_time, live_state._open, live_state._high, live_state._low, live_state._last,
+                    )
+        
         async def on_trade_update(trade_update: TradeUpdate):
-            
+            print('Trade Update')
             if (trade_update.event == TradeEvent.FILL) and (trade_update.order.side == OrderSide.BUY):
                 print(f'Bought {trade_update.order.symbol}')
                 unique_id, max_stop_loss = int(trade_update.execution_id), round(trade_update.price-0.1,2)
